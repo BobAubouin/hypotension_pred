@@ -2,3 +2,4 @@ vitaldb
 numpy
 pandas
 matplotlib
+tqdm
