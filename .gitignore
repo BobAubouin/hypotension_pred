@@ -11,3 +11,9 @@ __pycache__/
 env/
 venv/
 
+# Data folder
+data/
+
+# temp file of latex
+report/root.*
+!report/root.tex
