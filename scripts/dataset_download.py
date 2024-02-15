@@ -1,5 +1,6 @@
 import multiprocessing as mp
 from functools import partial
+import os
 
 import pandas as pd
 from tqdm import tqdm
@@ -14,7 +15,7 @@ FORBIDDEN_OPNAME_CASE = "transplant"
 TRACK_LIST_URL = "https://api.vitaldb.net/trks"
 CASE_INFO_URL = "https://api.vitaldb.net/cases"
 
-TRACK_NAME_SOLAR = "Solar8000/ART_MBP"
+TRACK_NAME_MBP = "Solar8000/ART_MBP"
 
 STATIC_DATA_NAMES = ["age", "bmi", "asa", "preop_cr", "preop_htn", "opname"]
 
@@ -114,7 +115,7 @@ def download_dataset(signal_names: list[str]) -> pd.DataFrame:
     # select case list which fit all those conditions
     caseids = list(
         # Track name is TRACK_NAME_SOLAR.
-        set(tracks.query(f"tname == '{TRACK_NAME_SOLAR}'").caseid)
+        set(tracks.query(f"tname == '{TRACK_NAME_MBP}'").caseid)
         &
         # Case should have more than AGE_CASE_THRESHOLD age.
         set(cases.query(f"age > {AGE_CASE_THRESHOLD}").caseid)
@@ -124,6 +125,9 @@ def download_dataset(signal_names: list[str]) -> pd.DataFrame:
         &
         # Case should NOT be have operator named .
         set(cases[~cases.opname.str.contains(FORBIDDEN_OPNAME_CASE, case=False)].caseid)
+        &
+        # select cases with elective operation
+        set(cases.query(f"emop ==  0").caseid)
     )
     print(f"Number of cases to consider: {len(caseids)}")
 
@@ -161,8 +165,10 @@ def main():
 
     dataset = download_dataset(signal_names)
 
-    print(dataset.head())
-    dataset.to_csv("data.csv", index=False)
+    # check if data folder exist
+    if not os.path.exists("data"):
+        os.makedirs("data")
+    dataset.to_csv("data/rawData.csv", index=False)
 
 
 if __name__ == "__main__":
