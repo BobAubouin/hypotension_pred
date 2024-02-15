@@ -1,8 +1,9 @@
 import multiprocessing as mp
 from functools import partial
+
 import pandas as pd
-import vitaldb as vdb
 from tqdm import tqdm
+from vitaldb import VitalFile
 
 PERCENT_MISSING_DATA_THRESHOLD = 0.4
 AGE_CASE_THRESHOLD = 18
@@ -60,9 +61,8 @@ def download_one_case(
     pd.DataFrame
         Returns the data in a pandas dataframe or None if empty.
     """
-    data_patient = vdb.VitalFile(caseid, signal_names)
-    data_patient = data_patient.to_pandas(signal_names, SAMPLING_TIME)
-    data_patient.insert(0, "caseid", caseid)
+    case_data = VitalFile(caseid, signal_names).to_pandas(signal_names, SAMPLING_TIME)
+    case_data.insert(0, "caseid", caseid)
 
     # check if there is enough data for each signal
     for signal in signal_names:
@@ -76,22 +76,21 @@ def download_one_case(
 
         # if more than PERCENT_MISSING_DATA_THRESHOLD of the data is missing,
         # -> skip the case
-        has_not_enough_data = data_patient[signal].isna().sum() > len(data_patient) * (
+        has_not_enough_data = case_data[signal].isna().sum() > len(case_data) * (
             1 - sampling_rate
         ) * (1 + PERCENT_MISSING_DATA_THRESHOLD)
         if has_not_enough_data:
             return None
 
     # get static data frome our case
-    data_patient_static = cases.query(f"caseid == {caseid}")[STATIC_DATA_NAMES]
-    data_patient_static["caseid"] = caseid
+    case_data_static = cases.query(f"caseid == {caseid}")[STATIC_DATA_NAMES]
+    case_data_static["caseid"] = caseid
 
-    if data_patient_static.isna().any().any():
+    if case_data_static.isna().any().any():
         return None
 
     # merge the data
-    data_patient = pd.merge(data_patient, data_patient_static, on="caseid")
-    return data_patient
+    return pd.merge(case_data, case_data_static, on="caseid")
 
 
 def download_dataset(signal_names: list[str]) -> pd.DataFrame:
@@ -143,6 +142,7 @@ def download_dataset(signal_names: list[str]) -> pd.DataFrame:
                 desc="Downloading data",
             )
         )
+
     dataset = pd.concat(
         [case_data for case_data in cases_data if case_data is not None]
     )
