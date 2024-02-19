@@ -13,7 +13,7 @@ from tqdm.asyncio import tqdm
 
 from hp_pred.tracks_config import (DEVICE_NAME_TO_SAMPLING_RATE,
                                    STATIC_DATA_NAMES, TRACKS_CONFIG,
-                                   TrackConfig)
+                                   TrackConfig, SAMPLING_TIME)
 
 VITAL_API_BASE_URL = "https://api.vitaldb.net"
 TRACKS_META_URL = f"{VITAL_API_BASE_URL}/trks"
@@ -234,16 +234,11 @@ def post_process_track(
             continue
 
         sampling_rate_hz = DEVICE_NAME_TO_SAMPLING_RATE[device_name]
-        # sampling_rate = 1 / sampling_rate_hz
-        sampling_rate = 1
+        minimum_number_of_nan = len(track) * min(0, (1-SAMPLING_TIME/sampling_rate_hz))
+        maximum_number_of_acceptable_nan = (len(track) - minimum_number_of_nan)*PERCENT_MISSING_DATA_THRESHOLD
 
-        # TODO: The sampling format has not been done so the `has_enough_data`
-        # is always up.
-        # if more than PERCENT_MISSING_DATA_THRESHOLD of the data is missing,
-        # -> skip the case
-        has_not_enough_data = track[track_name].isna().sum() > len(track) * (
-            1 - sampling_rate
-        ) * (1 + PERCENT_MISSING_DATA_THRESHOLD)
+        has_not_enough_data = track[track_name].isna().sum() > minimum_number_of_nan + maximum_number_of_acceptable_nan
+
         if has_not_enough_data:
             return None
 

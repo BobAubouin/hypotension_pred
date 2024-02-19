@@ -2,6 +2,8 @@ from typing import TypedDict
 
 STATIC_DATA_NAMES = ["age", "bmi", "asa", "preop_cr", "preop_htn", "opname"]
 
+SAMPLING_TIME = 1
+
 
 class TrackConfig(TypedDict):
     name: str
