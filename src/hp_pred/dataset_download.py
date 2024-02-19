@@ -39,18 +39,20 @@ def parse() -> tuple[str, Path]:
 
     log_level_names = list(logging.getLevelNamesMapping().keys())
     parser.add_argument(
+        "-l",
         "--log_level_name",
         type=str,
         default="INFO",
         choices=log_level_names,
-        help="The logger level name to generate logs.",
+        help="The logger level name to generate logs. (default: %(default)s)",
     )
 
     parser.add_argument(
+        "-o",
         "--output_folder",
         type=str,
         default="data",
-        help="The folder to store the data and log.",
+        help="The folder to store the data and logs. (default: %(default)s)",
     )
 
     args = parser.parse_args()
