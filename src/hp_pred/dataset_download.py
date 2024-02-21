@@ -196,16 +196,7 @@ def retrieve_tracks_raw_data(tracks_meta: pd.DataFrame) -> list[pd.DataFrame]:
 
 
 def format_track_raw_data_wav(track_raw_data: pd.DataFrame) -> pd.DataFrame:
-    interval = track_raw_data.Time[1] - track_raw_data.Time[0]
-    assert interval > 0
-    sampling_rate = 1 / interval
-
-    track_data = pd.DataFrame()
-    # manage wav
-    # get samples -> RAS pour l'appel, il renvoie une liste des
-    # resultats de "get_track_samples" pour chaque track_name
-
-    return track_raw_data
+    raise NotImplementedError
 
 
 def format_track_raw_data_num(track_raw_data: pd.DataFrame) -> pd.DataFrame:
