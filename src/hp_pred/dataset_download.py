@@ -170,7 +170,7 @@ def post_process_track(
 ) -> pd.DataFrame | None:
     # Ensure data the patient has enough data.
     for track_name in track_names:
-        device_name, signal_name = track_name.split("/")
+        device_name, _ = track_name.split("/")[0]
         if not device_name in DEVICE_NAME_TO_SAMPLING_RATE:
             continue
 
