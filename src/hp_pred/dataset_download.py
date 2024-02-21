@@ -1,27 +1,20 @@
 import argparse
 import asyncio
 import datetime
-import io
 import logging
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pandas as pd
-from aiohttp import ClientSession, ClientTimeout
-from tqdm.asyncio import tqdm
 
+from hp_pred.data_retrieve_async import retrieve_tracks_raw_data_async
+from hp_pred.constants import VITAL_API_BASE_URL
 from hp_pred.tracks_config import (DEVICE_NAME_TO_SAMPLING_RATE,
                                    STATIC_DATA_NAMES, TRACKS_CONFIG,
                                    TrackConfig, SAMPLING_TIME)
 
-VITAL_API_BASE_URL = "https://api.vitaldb.net"
 TRACKS_META_URL = f"{VITAL_API_BASE_URL}/trks"
 CASE_INFO_URL = f"{VITAL_API_BASE_URL}/cases"
-
-TIMEOUT = ClientTimeout(total=None, sock_connect=10, sock_read=30)
-# Import time (in second) out to avoid timeout error on long csv or poor network.
-AVERAGE_TIMEOUT_TRACK = 0.1
 
 # Filter constants
 TRACK_NAME_MBP = "Solar8000/ART_MBP"
@@ -122,60 +115,17 @@ def filter_case_ids(cases: pd.DataFrame, tracks_meta: pd.DataFrame) -> list[int]
 
     return filtered_unique_case_ids
 
-
-async def _retrieve_csv_text(track_url: str, session: ClientSession) -> str:
-    async with session.get(track_url) as response:
-        return await response.text()
-
-
-def _read_csv_sync(csv_text: str, case_id: int) -> pd.DataFrame:
-    return pd.read_csv(io.StringIO(csv_text), na_values="-nan(ind)").assign(
-        caseid=case_id
-    )
-
-
-async def _read_csv_async(
-    track_url: str, case_id: int, executor: ThreadPoolExecutor, session: ClientSession
-) -> pd.DataFrame:
-    csv_text = await _retrieve_csv_text(track_url, session)
-
-    loop = asyncio.get_running_loop()
-    track_raw_data = await loop.run_in_executor(
-        executor, _read_csv_sync, csv_text, case_id
-    )
-
-    return track_raw_data
-
-
-async def _retrieve_tracks_raw_data_async(
-    tracks_url_and_case_id: list[tuple[str, int]]
-) -> list[pd.DataFrame]:
-    logger.debug("Start retrieving data from VitalDB API")
-
-    async with ClientSession(base_url=VITAL_API_BASE_URL, timeout=TIMEOUT) as session:
-        with ThreadPoolExecutor() as executor:
-            read_tasks = [
-                _read_csv_async(track_url, case_id, executor, session)
-                for track_url, case_id in tracks_url_and_case_id
-            ]
-            tracks_raw_data: list[pd.DataFrame] = []
-            for read_csv_task in tqdm.as_completed(read_tasks, mininterval=1):
-                track_url_and_raw_data = await read_csv_task
-                tracks_raw_data.append(track_url_and_raw_data)
-
-    logger.debug("Done retrieving data from VitalDB API")
-    return tracks_raw_data
-
-
 def retrieve_tracks_raw_data(tracks_meta: pd.DataFrame) -> list[pd.DataFrame]:
     tracks_url_and_case_id = [
         (f"/{track.tid}", int(track.caseid))  # type: ignore
         for track in tracks_meta.itertuples(index=False)
     ]
 
+    logger.debug("Start retrieving data from VitalDB API")
     tracks_raw_data = asyncio.run(
-        _retrieve_tracks_raw_data_async(tracks_url_and_case_id)
+        retrieve_tracks_raw_data_async(tracks_url_and_case_id)
     )
+    logger.debug("Done retrieving data from VitalDB API")
 
     logger.debug("Start gathering raw track data by case ID.")
     case_id_to_track_raw_data_list: dict[int, list[pd.DataFrame]] = defaultdict(list)
