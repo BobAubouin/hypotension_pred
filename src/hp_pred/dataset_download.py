@@ -115,6 +115,7 @@ def filter_case_ids(cases: pd.DataFrame, tracks_meta: pd.DataFrame) -> list[int]
 
     return filtered_unique_case_ids
 
+
 def retrieve_tracks_raw_data(tracks_meta: pd.DataFrame) -> list[pd.DataFrame]:
     tracks_url_and_case_id = [
         (f"/{track.tid}", int(track.caseid))  # type: ignore
@@ -150,10 +151,11 @@ def format_track_raw_data_wav(track_raw_data: pd.DataFrame) -> pd.DataFrame:
 
 
 def format_track_raw_data_num(track_raw_data: pd.DataFrame) -> pd.DataFrame:
-    return track_raw_data
+    # NOTE: If the SAMPLING_TIME is changing we must use an apply.
+    return track_raw_data.astype({"Time": int}).groupby("Time", as_index=False).first()
 
 
-def format_track_raw_data(track_raw_data: pd.DataFrame) -> pd.DataFrame:
+def format_time_track_raw_data(track_raw_data: pd.DataFrame) -> pd.DataFrame:
     track_raw_data = track_raw_data.astype(pd.Float32Dtype)
 
     return (
@@ -175,10 +177,17 @@ def post_process_track(
             continue
 
         sampling_rate_hz = DEVICE_NAME_TO_SAMPLING_RATE[device_name]
-        minimum_number_of_nan = len(track) * min(0, (1-SAMPLING_TIME/sampling_rate_hz))
-        maximum_number_of_acceptable_nan = (len(track) - minimum_number_of_nan)*PERCENT_MISSING_DATA_THRESHOLD
+        minimum_number_of_nan = len(track) * min(
+            0, (1 - SAMPLING_TIME / sampling_rate_hz)
+        )
+        maximum_number_of_acceptable_nan = (
+            len(track) - minimum_number_of_nan
+        ) * PERCENT_MISSING_DATA_THRESHOLD
 
-        has_not_enough_data = track[track_name].isna().sum() > minimum_number_of_nan + maximum_number_of_acceptable_nan
+        has_not_enough_data = (
+            track[track_name].isna().sum()
+            > minimum_number_of_nan + maximum_number_of_acceptable_nan
+        )
 
         if has_not_enough_data:
             return None
@@ -201,13 +210,10 @@ def build_dataset(
     # HTTP requests handled with asynchronous calls
     tracks_raw_data = retrieve_tracks_raw_data(tracks_meta)
 
-    # Handle timestamp and add additional info
-    # it follows VitalDB standards tracks
-    # tracks_formatted = [
-    #     format_track_raw_data(track_raw_data)
-    #     for track_raw_data in tracks_raw_data
-    # ]
-    # Might be useless
+    # Handle timestamp
+    tracks_formatted = [
+        format_time_track_raw_data(track_raw_data) for track_raw_data in tracks_raw_data
+    ]
 
     # Our post process, specific to select our tracks of interest
     # tracks_post_processed = [post_process_track(track) for track in tracks_formatted]
