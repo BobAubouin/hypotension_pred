@@ -3,17 +3,27 @@ import io
 from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
-from aiohttp import ClientSession, ClientTimeout
+from aiohttp import ClientSession, ClientTimeout, ClientError
 from tqdm.asyncio import tqdm
 
 from hp_pred.constants import VITAL_API_BASE_URL
 
-TIMEOUT = ClientTimeout(total=None, sock_connect=10, sock_read=30)
+TIMEOUT = ClientTimeout(total=None, sock_connect=10, sock_read=10)
+MAX_TRIES = 3
 
 
 async def _retrieve_csv_text(track_url: str, session: ClientSession) -> str:
-    async with session.get(track_url) as response:
-        return await response.text()
+    attempt = 0
+    client_error: ClientError
+
+    while attempt < MAX_TRIES:
+        try:
+            async with session.get(track_url) as response:
+                return await response.text()
+        except ClientError as e:
+            client_error = e
+
+    raise ClientError(client_error)
 
 
 def _read_csv_sync(csv_text: str, case_id: int) -> pd.DataFrame:
