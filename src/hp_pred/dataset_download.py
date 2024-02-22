@@ -155,8 +155,9 @@ def format_track_raw_data_wav(track_raw_data: pd.DataFrame) -> pd.DataFrame:
 
 
 def format_track_raw_data_num(track_raw_data: pd.DataFrame) -> pd.DataFrame:
-    # NOTE: If the SAMPLING_TIME is changing we must use an apply.
-    return track_raw_data.astype({"Time": int}).groupby("Time", as_index=False).first()
+    track_raw_data.Time = (track_raw_data.Time / SAMPLING_TIME).astype(int)
+
+    return track_raw_data.groupby("Time", as_index=False).first()
 
 
 def format_time_track_raw_data(track_raw_data: pd.DataFrame) -> pd.DataFrame:
@@ -178,8 +179,11 @@ def format_time_track_raw_data(track_raw_data: pd.DataFrame) -> pd.DataFrame:
 def post_process_track(
     track: pd.DataFrame,
     cases: pd.DataFrame,
-    track_names: list[str],
 ) -> pd.DataFrame | None:
+    track_names = [
+        column for column in track.columns if column not in ["Time", "caseid"]
+    ]
+
     # Ensure data the patient has enough data.
     for track_name in track_names:
         device_name = track_name.split("/")[0]
@@ -200,6 +204,9 @@ def post_process_track(
         )
 
         if has_not_enough_data:
+            logger.debug(
+                f"Case {int(track.caseid.iloc[0]):,d}, track {track_name} has not enough data."
+            )
             return None
 
     # NOTE: caseid is unique in a track, asserted at build time.
@@ -215,7 +222,6 @@ def post_process_track(
 def build_dataset(
     tracks_meta: pd.DataFrame,
     cases: pd.DataFrame,
-    track_names: list[str],
 ) -> pd.DataFrame:
     # HTTP requests handled with asynchronous calls
     tracks_raw_data = retrieve_tracks_raw_data(tracks_meta)
@@ -231,15 +237,15 @@ def build_dataset(
     logger.debug("Start post process data, keep cases with enough data")
     tracks_post_processed = [
         track
-        for _track in tracks_raw_data
-        if (track := post_process_track(_track, cases, track_names)) is not None
+        for _track in tracks_formatted
+        if (track := post_process_track(_track, cases)) is not None
     ]
     logger.debug("Post post process is done.")
 
-    n_tracks = sum(len(track) for track in tracks_post_processed)
+    # On each case dataframe, count the number of tracks. -1 because Time column.
+    n_tracks = sum(len(track.columns) - 1 for track in tracks_post_processed)
     logger.info(
-        f"Dataset succesfully built with {len(tracks_post_processed)} cases "
-        f"and {n_tracks}."
+        f"Dataset succesfully built with {len(tracks_post_processed)} cases ({n_tracks} tracks) "
     )
 
     return pd.concat(
@@ -272,7 +278,7 @@ def main():
     ]
     logger.info(f"Number of tracks to download: {len(targeted_tracks_meta)}\n")
 
-    dataset = build_dataset(targeted_tracks_meta, cases, track_names)
+    dataset = build_dataset(targeted_tracks_meta, cases)
 
     dataset_file = output_folder / "data_async.csv"
     logger.info(f"Dataset is saved in {dataset_file}.")
