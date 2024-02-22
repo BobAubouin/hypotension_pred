@@ -190,18 +190,31 @@ def post_process_track(
         if not device_name in DEVICE_NAME_TO_SAMPLING_RATE:
             continue
 
-        sampling_rate_hz = DEVICE_NAME_TO_SAMPLING_RATE[device_name]
-        minimum_number_of_nan = len(track) * min(
-            0, (1 - SAMPLING_TIME / sampling_rate_hz)
-        )
-        maximum_number_of_acceptable_nan = (
-            len(track) - minimum_number_of_nan
-        ) * PERCENT_MISSING_DATA_THRESHOLD
+        # The tracks have different sampling time (lower of the second here)
+        # For example, if track has 200 rows with sampling time of .5, at best
+        # there would be 100 rows with value (not NaN).
+        # An actual track might have different amount of values, lesser than 100.
+        # We want to make sure those tracks have enough data. So we fix a
+        # percentage over this max number of values (100).
+        # Let's say we are okay to have 60% of the max number of values (60).
+        # Then we make sure that we have 60 rows with values.
+        max_number_values = len(track) / DEVICE_NAME_TO_SAMPLING_RATE[device_name]
+        acceptable_number_values = (1 - PERCENT_MISSING_DATA_THRESHOLD) * max_number_values
+        number_values = track[track_name].notna().sum()
+        has_not_enough_data = number_values < acceptable_number_values
 
-        has_not_enough_data = (
-            track[track_name].isna().sum()
-            > minimum_number_of_nan + maximum_number_of_acceptable_nan
-        )
+        # sampling_rate_hz = DEVICE_NAME_TO_SAMPLING_RATE[device_name]
+        # minimum_number_of_nan = len(track) * min(
+        #     0, (1 - SAMPLING_TIME / sampling_rate_hz)
+        # )
+        # maximum_number_of_acceptable_nan = (
+        #     len(track) - minimum_number_of_nan
+        # ) * PERCENT_MISSING_DATA_THRESHOLD
+
+        # has_not_enough_data = (
+        #     track[track_name].isna().sum()
+        #     > minimum_number_of_nan + maximum_number_of_acceptable_nan
+        # )
 
         if has_not_enough_data:
             logger.debug(
