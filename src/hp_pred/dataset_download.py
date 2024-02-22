@@ -7,11 +7,15 @@ from pathlib import Path
 
 import pandas as pd
 
-from hp_pred.data_retrieve_async import retrieve_tracks_raw_data_async
 from hp_pred.constants import VITAL_API_BASE_URL
-from hp_pred.tracks_config import (DEVICE_NAME_TO_SAMPLING_RATE,
-                                   STATIC_DATA_NAMES, TRACKS_CONFIG,
-                                   TrackConfig, SAMPLING_TIME)
+from hp_pred.data_retrieve_async import retrieve_tracks_raw_data_async
+from hp_pred.tracks_config import (
+    DEVICE_NAME_TO_SAMPLING_RATE,
+    SAMPLING_TIME,
+    STATIC_DATA_NAMES,
+    TRACKS_CONFIG,
+    TrackConfig,
+)
 
 TRACKS_META_URL = f"{VITAL_API_BASE_URL}/trks"
 CASE_INFO_URL = f"{VITAL_API_BASE_URL}/cases"
@@ -156,7 +160,13 @@ def format_track_raw_data_num(track_raw_data: pd.DataFrame) -> pd.DataFrame:
 
 
 def format_time_track_raw_data(track_raw_data: pd.DataFrame) -> pd.DataFrame:
-    track_raw_data = track_raw_data.astype(pd.Float32Dtype)
+    track_raw_data = track_raw_data.astype(
+        {
+            column_name: "float32"
+            for column_name in track_raw_data.columns
+            if column_name != "Time"
+        }
+    )
 
     return (
         format_track_raw_data_wav(track_raw_data)
