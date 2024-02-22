@@ -17,7 +17,7 @@ dependencies = [
     "tqdm==4.66.1",
     "aiohttp==3.9.3",
 ]
-optional-dependencies = { "dev" = ["pytest==8.0.0", "black==24.2.0"] }
+optional-dependencies = { "dev" = ["pytest==8.0.0", "black==24.2.0", "isort==5.13.2"] }
 requires-python = "~= 3.10"
 dynamic = ["version"]
 license = { file = "LICENSE" }
@@ -32,3 +32,6 @@ path = "src/hp_pred/__init__.py"
 [tool.black]
 line-length = 88
 target-version = ['py310']
+
+[tool.isort]
+profile = "black"
