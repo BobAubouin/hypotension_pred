@@ -218,7 +218,7 @@ def post_process_track(
 
         if has_not_enough_data:
             logger.debug(
-                f"Case {int(track.caseid.iloc[0]):,d}, track {track_name} has not enough data."
+                f"Case {int(track.caseid.iloc[0]):,5d}, track {track_name} has not enough data."
             )
             return None
 
