@@ -9,6 +9,9 @@
 \usepackage{booktabs}
 \usepackage[T1]{fontenc}
 \usepackage[table]{xcolor}
+\usepackage{tikz}
+
+
 \newtheorem*{remark}{Remark}
 
 
@@ -118,9 +121,9 @@ One idea to label the data could be to ask the anesthesiologist to label a part 
 
 Framing the problem is an important step in the machine learning process for clinical application. In fact recent paper \cite{lauritsenFramingMachineLearning2021} have shown that the way the problem is framed can have a huge impact on the performance of the model and the way it could be used in practice. \medskip
 
-In the litterature, \cite{hatibMachinelearningAlgorithmPredict2018} and \cite{leeDeepLearningModels2021} have used a ""fixed time to onset" approach. In this approach, the model is trained to respond to one particular question: "Will the patient have a hypotension event in the next $X$ minutes?" where $X$ was 5, 10 or 15 minutes. If this type of framing leads to the best algorithmic performances, this does not respond to a solid clinical question. In fact, with this approach a perfect model would be useless in practice. A more relevant framing have been proposed in \cite{enevoldsenSelectionBiasHypotension2023} where the question is: "Will the patient have a hypotension event in the next $3$ to $10$ minutes?". This framing correspond to a sliding window approach. An illustration of the existing approach and the one proposed here is given in Fig.~\ref{fig:framing}.
+In the litterature, \cite{hatibMachinelearningAlgorithmPredict2018} and \cite{leeDeepLearningModels2021} have used a "fixed time to onset" approach. For this approach, the model is trained to respond to one particular question: "Will the patient have a hypotension event in the next $X$ minutes?" where $X$ was 5, 10 or 15 minutes. If this type of framing leads to the best algorithmic performances, this does not respond to a solid clinical question. In fact, with this approach a perfect model would be useless in practice. A more relevant framing have been proposed in \cite{enevoldsenSelectionBiasHypotension2023} where the question is: "Will the patient have a hypotension event in the next $3$ to $10$ minutes?". This framing correspond to a sliding window approach. An illustration of the existing approach and the one proposed here is given in Fig.~\ref{fig:framing}.
 
-\begin{figure}
+\begin{figure}[h]
     \centering
     \includegraphics[width=\textwidth]{figures/framing.pdf}
     \caption{Illustration of the different framing of the problem.}
@@ -139,9 +142,14 @@ The impact of those parameters must be studied in this work or the followings.
 
 \section{Data pre-processing}
 
-First, to remove time were arterial blood pressure is not monitored, all the sample where MAP<40mmHg are removed. In addition, to remove peak values, sample where MAP >150 are also removed.
+The following flow chart describes the data selection of each segment of the data. 
 
-For physiological signal, missing value are replaced by last valid measured value. For drug rates value and MAC missing values are replaced by last valid value or 0 if no measures are available.
+\begin{figure}[h]
+    \centering
+    \input{figures/data_preprocessing.tex}
+    \caption{Data pre-processing flow chart}
+    \label{fig:preprocessing}
+\end{figure}
 
 
 
@@ -156,7 +164,7 @@ To fairly evaluate the potential of our method against baseline and evaluate unc
     \label{fig:loocv}
 \end{figure}
 
-In this work the metric used is the Aera Under the Receiver operating characteristic curve (AUC). This curve evaluates the ability of a binary classifier at different threshold value and is usually used in medical field. It is the plot of the True Positive error against the False positive error (or sensitivity against 1 - specificity).
+In this work the metric used is the Aera Under the Receiver operating characteristic curve (AUC) \cite{masonAreasRelativeOperating2002a}. This curve evaluates the ability of a binary classifier at different threshold value and is usually used in medical field. It is the plot of the True Positive error against the False positive error (or sensitivity against 1 - specificity). The way to associate a $p$-value to this metric must be inestigated in \cite{masonAreasRelativeOperating2002a}.
 
 \section{Baseline}
 

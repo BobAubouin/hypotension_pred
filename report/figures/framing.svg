@@ -25,8 +25,8 @@
      inkscape:deskcolor="#d1d1d1"
      inkscape:document-units="mm"
      inkscape:zoom="1.0217435"
-     inkscape:cx="478.5937"
-     inkscape:cy="293.1264"
+     inkscape:cx="390.99833"
+     inkscape:cy="402.74296"
      inkscape:window-width="1850"
      inkscape:window-height="1011"
      inkscape:window-x="0"
@@ -82,6 +82,25 @@
          style="fill:context-stroke;fill-rule:evenodd;stroke:context-stroke;stroke-width:1pt"
          d="M 5.77,0 -2.88,5 V -5 Z"
          id="path135" />
+    </marker>
+    <marker
+       style="overflow:visible"
+       id="Triangle-7"
+       refX="0"
+       refY="0"
+       orient="auto-start-reverse"
+       inkscape:stockid="Triangle arrow"
+       markerWidth="1"
+       markerHeight="1"
+       viewBox="0 0 1 1"
+       inkscape:isstock="true"
+       inkscape:collect="always"
+       preserveAspectRatio="xMidYMid">
+      <path
+         transform="scale(0.5)"
+         style="fill:context-stroke;fill-rule:evenodd;stroke:context-stroke;stroke-width:1pt"
+         d="M 5.77,0 -2.88,5 V -5 Z"
+         id="path135-5" />
     </marker>
   </defs>
   <g
@@ -299,6 +318,11 @@
        id="path23"
        sodipodi:nodetypes="cc" />
     <path
+       style="fill:none;stroke:#000000;stroke-width:0.264583px;stroke-linecap:butt;stroke-linejoin:miter;stroke-opacity:1;marker-start:url(#Triangle-7);marker-end:url(#Triangle-7)"
+       d="m 47.21057,105.3031 h 59.03504"
+       id="path23-6"
+       sodipodi:nodetypes="cc" />
+    <path
        style="fill:none;stroke:#000000;stroke-width:0.264583px;stroke-linecap:butt;stroke-linejoin:miter;stroke-opacity:1;marker-start:url(#Triangle);marker-end:url(#Triangle)"
        d="m 112.19967,142.01018 h 29.18622"
        id="path24"
@@ -312,12 +336,12 @@
        transform="matrix(0.79103338,0,0,0.79103338,-49.784742,74.632185)"><tspan
          x="172.10074"
          y="80.64698"
-         id="tspan1">Leading<tspan
+         id="tspan53">Leading<tspan
    y="80.64698"
-   id="tspan2"> </tspan></tspan><tspan
+   id="tspan61"> </tspan></tspan><tspan
          x="172.10074"
          y="84.174756"
-         id="tspan10">Time</tspan></text>
+         id="tspan69">Time</tspan></text>
     <text
        xml:space="preserve"
        style="font-style:normal;font-weight:normal;font-size:7.10424px;line-height:1.25;font-family:sans-serif;text-align:center;letter-spacing:0px;word-spacing:0px;text-anchor:middle;white-space:pre;inline-size:0;fill:#010101;fill-opacity:1;stroke:none;stroke-width:0.264583"
@@ -344,7 +368,7 @@
        transform="translate(-58.493899,73.211338)"><tspan
          x="164.09834"
          y="80.64698"
-         id="tspan12">Unselected data</tspan></text>
+         id="tspan70">Unselected data</tspan></text>
     <rect
        style="fill:#96ff9e;fill-opacity:1;stroke:none;stroke-width:0.703019;stroke-linecap:round;stroke-miterlimit:3.3;stroke-dasharray:0.756128, 0.756128;stroke-dashoffset:0;stroke-opacity:1"
        id="rect28"
@@ -576,50 +600,50 @@
        transform="translate(-17.705897,9.610082)"><tspan
          x="174.10579"
          y="20.313631"
-         id="tspan19"><tspan
+         id="tspan72"><tspan
            style="font-weight:bold;font-family:Arial;-inkscape-font-specification:'Arial Bold'"
-           id="tspan13">Data selection:
+           id="tspan71">Data selection:
 </tspan></tspan><tspan
          x="174.10579"
          y="24.755532"
-         id="tspan23"><tspan
+         id="tspan75"><tspan
            style="font-weight:bold;font-family:Arial;-inkscape-font-specification:'Arial Bold'"
-           id="tspan20">Event:</tspan><tspan
+           id="tspan73">Event:</tspan><tspan
            style="font-family:Arial;-inkscape-font-specification:Arial"
-           id="tspan22"> the point 5 </tspan></tspan><tspan
+           id="tspan74"> the point 5 </tspan></tspan><tspan
          x="174.10579"
          y="29.197434"
-         id="tspan25"><tspan
+         id="tspan77"><tspan
            style="font-family:Arial;-inkscape-font-specification:Arial"
-           id="tspan24">minute before </tspan></tspan><tspan
+           id="tspan76">minute before </tspan></tspan><tspan
          x="174.10579"
          y="33.639336"
-         id="tspan38"><tspan
+         id="tspan79"><tspan
            style="font-family:Arial;-inkscape-font-specification:Arial"
-           id="tspan27">hypotension
+           id="tspan78">hypotension
 </tspan></tspan><tspan
          x="174.10579"
          y="38.081238"
-         id="tspan41"><tspan
+         id="tspan82"><tspan
            style="font-weight:bold;font-family:Arial;-inkscape-font-specification:'Arial Bold'"
-           id="tspan39">Non-event:</tspan><tspan
+           id="tspan80">Non-event:</tspan><tspan
            style="font-family:Arial;-inkscape-font-specification:Arial"
-           id="tspan40"> center </tspan></tspan><tspan
+           id="tspan81"> center </tspan></tspan><tspan
          x="174.10579"
          y="42.523141"
-         id="tspan44"><tspan
+         id="tspan84"><tspan
            style="font-family:Arial;-inkscape-font-specification:Arial"
-           id="tspan43">of X minute non-</tspan></tspan><tspan
+           id="tspan83">of X minute non-</tspan></tspan><tspan
          x="174.10579"
          y="46.965043"
-         id="tspan46"><tspan
+         id="tspan86"><tspan
            style="font-family:Arial;-inkscape-font-specification:Arial"
-           id="tspan45">hypotension </tspan></tspan><tspan
+           id="tspan85">hypotension </tspan></tspan><tspan
          x="174.10579"
          y="51.406945"
-         id="tspan54"><tspan
+         id="tspan88"><tspan
            style="font-family:Arial;-inkscape-font-specification:Arial"
-           id="tspan52">segment</tspan></tspan></text>
+           id="tspan87">segment</tspan></tspan></text>
     <rect
        style="fill:#f9ffff;fill-opacity:1;stroke:#000000;stroke-width:0.308;stroke-linecap:round;stroke-miterlimit:3.3;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1"
        id="rect59"
@@ -637,34 +661,45 @@
        transform="translate(-17.705897,85.960094)"><tspan
          x="174.10579"
          y="20.313631"
-         id="tspan56"><tspan
+         id="tspan90"><tspan
            style="font-weight:bold;font-family:Arial;-inkscape-font-specification:'Arial Bold'"
-           id="tspan55">Data selection:
+           id="tspan89">Data selection:
 </tspan></tspan><tspan
          x="174.10579"
          y="24.755532"
-         id="tspan58"><tspan
+         id="tspan92"><tspan
            style="font-family:Arial;-inkscape-font-specification:Arial"
-           id="tspan57">All points such that </tspan></tspan><tspan
+           id="tspan91">All points such that </tspan></tspan><tspan
          x="174.10579"
          y="29.197434"
-         id="tspan62"><tspan
+         id="tspan94"><tspan
            style="font-family:Arial;-inkscape-font-specification:Arial"
-           id="tspan60">the observation is </tspan></tspan><tspan
+           id="tspan93">the observation is </tspan></tspan><tspan
          x="174.10579"
          y="33.639336"
-         id="tspan64"><tspan
+         id="tspan96"><tspan
            style="font-family:Arial;-inkscape-font-specification:Arial"
-           id="tspan63">not part of the </tspan></tspan><tspan
+           id="tspan95">not part of the </tspan></tspan><tspan
          x="174.10579"
          y="38.081238"
-         id="tspan66"><tspan
+         id="tspan98"><tspan
            style="font-family:Arial;-inkscape-font-specification:Arial"
-           id="tspan65">unselected data </tspan></tspan><tspan
+           id="tspan97">unselected data </tspan></tspan><tspan
          x="174.10579"
          y="42.523141"
-         id="tspan68"><tspan
+         id="tspan100"><tspan
            style="font-family:Arial;-inkscape-font-specification:Arial"
-           id="tspan67">segment.</tspan></tspan></text>
+           id="tspan99">segment.</tspan></tspan></text>
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-weight:normal;font-size:2.82222px;line-height:1.25;font-family:sans-serif;text-align:center;letter-spacing:0px;word-spacing:0px;text-anchor:middle;white-space:pre;inline-size:0;fill:#010101;fill-opacity:1;stroke:none;stroke-width:0.264583"
+       x="172.10074"
+       y="80.64698"
+       id="text59"
+       transform="translate(-95.193633,23.217617)"><tspan
+         sodipodi:role="line"
+         x="172.10074"
+         y="80.64698"
+         id="tspan59">Overall segment</tspan></text>
   </g>
 </svg>
