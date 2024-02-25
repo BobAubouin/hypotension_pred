@@ -40,7 +40,12 @@ def label_caseid(df_case: pd.DataFrame, sampling_time: int):
     return df_case
 
 
-def validate_segment(segment: pd.DataFrame, previous_segment: pd.DataFrame, sampling_time: int, observation_windows: int, leading_time: int):
+def validate_segment(
+        segment: pd.DataFrame,
+        previous_segment: pd.DataFrame,
+        sampling_time: int,
+        observation_windows: int,
+        leading_time: int):
     """ Validate_segment function validate the segment to be used in the model.
 
     The conditions to validate the segment are:
@@ -279,7 +284,7 @@ def dataLoaderParallel(half_times: list[int] = [10, 60, 5*60],
 
     pbar = tqdm(total=min(max_number_of_case, len(rawData['caseid'].unique())), desc='Processing caseid')
 
-    rawData = rawData[rawData['caseid'].isin(caseid_list_raw[:max_number_of_case])]
+    rawData = rawData[rawData['caseid'].isin(rawData['caseid'].unique()[:max_number_of_case])]
     with concurrent.futures.ProcessPoolExecutor() as executor:
         futures = {executor.submit(process_cases,
                                    df_case,
