@@ -10,7 +10,8 @@
 \usepackage[T1]{fontenc}
 \usepackage[table]{xcolor}
 \usepackage{tikz}
-
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
 
 \newtheorem*{remark}{Remark}
 
@@ -168,11 +169,20 @@ In this work the metric used is the Aera Under the Receiver operating characteri
 
 \section{Baseline}
 
-A fair baseline for the prediction of hypotension have been recently published in \cite{jacquet-lagrezePredictionIntraoperativeHypotension2022}. In this article they demonstrate that both linear extrapolation of MAP value and last value of MAP are good baseline for the prediction of hypotension. In this work, we will use the last value of MAP as a baseline, as it is simplest to implement. \medskip
+A fair baseline for the prediction of hypotension have been recently published in \cite{jacquet-lagrezePredictionIntraoperativeHypotension2022}. In this article they demonstrate that both linear extrapolation of MAP value and last value of MAP are good baseline for the prediction of hypotension. In this work, we used the last value of MAP as a baseline, as it is simplest to implement. \medskip
+
+Results of the baseline are given in Fig.~\ref{fig:baseline}.
+
+\begin{figure}[h]
+    \centering
+    \input{figures/baseline_roc.tex}
+    \caption{Receiver operating characteristic for prediction of hypotension with last MAP value as a baseline.}
+    \label{fig:baseline}
+\end{figure}
 
 
 \bibliographystyle{ieeetr}
 \bibliography{bibli}
-
+ 
 
 \end{document}
