@@ -20,3 +20,22 @@ git clone https://github.com/BobAubouin/hypotension_pred hp_pred
 cd hp_pred
 pip install -e .[dev]
 ```
+
+## Use
+
+### Download the dataset
+
+The data used are from the [VitalDB](https://vitaldb.net/) open dataset. To download them you can use the package's command `python -m hp_pred.dataset_download`. The help command outputs the following:
+
+```
+usage: dataset_download.py [-h] [-l {CRITICAL,FATAL,ERROR,WARN,WARNING,INFO,DEBUG,NOTSET}] [-o OUTPUT_FOLDER]
+
+Download the VitalDB data for hypertension prediction.
+
+options:
+  -h, --help            show this help message and exit
+  -l {CRITICAL,FATAL,ERROR,WARN,WARNING,INFO,DEBUG,NOTSET}, --log_level_name {CRITICAL,FATAL,ERROR,WARN,WARNING,INFO,DEBUG,NOTSET}
+                        The logger level name to generate logs. (default: INFO)
+  -o OUTPUT_FOLDER, --output_folder OUTPUT_FOLDER
+                        The folder to store the data and logs. (default: data)
+```
