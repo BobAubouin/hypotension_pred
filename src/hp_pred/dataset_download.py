@@ -11,7 +11,6 @@ from hp_pred.constants import VITAL_API_BASE_URL
 from hp_pred.data_retrieve_async import retrieve_tracks_raw_data_async
 from hp_pred.tracks_config import (
     DEVICE_NAME_TO_SAMPLING_RATE,
-    SAMPLING_TIME,
     STATIC_DATA_NAMES,
     TRACKS_CONFIG,
     TrackConfig,
@@ -202,7 +201,7 @@ def format_track_raw_data_num(track_raw_data: pd.DataFrame) -> pd.DataFrame:
     Returns:
         pd.DataFrame: Track data with integer Time and fewer NaN.
     """
-    track_raw_data.Time = (track_raw_data.Time / SAMPLING_TIME).astype(int)
+    track_raw_data.Time = track_raw_data.Time.astype(int)
 
     return track_raw_data.groupby("Time", as_index=False).first()
 
