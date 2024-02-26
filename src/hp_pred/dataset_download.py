@@ -70,9 +70,9 @@ def setup_logger(output_folder: Path, log_level_name: str):
     log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     log_formatter = logging.Formatter(log_format)
 
-    # Console handler
+    # Console handler, log everything.
     console_handler = logging.StreamHandler()
-    console_handler.setLevel(log_level)
+    console_handler.setLevel(logging.DEBUG)
     console_handler.setFormatter(log_formatter)
 
     # File handler
