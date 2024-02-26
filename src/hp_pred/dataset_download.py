@@ -87,6 +87,16 @@ def setup_logger(output_folder: Path, log_level_name: str):
 
 
 def get_track_names(tracks: list[TrackConfig] = TRACKS_CONFIG) -> list[str]:
+    """
+    Get a list of track names from a list of dictionnaries (TrackConfig)
+
+    Args:
+        tracks (list[TrackConfig], optional): List of config, 1 config for each device.
+            Defaults to TRACKS_CONFIG.
+
+    Returns:
+        list[str]: List of the track names.
+    """
     track_names = [
         f"{track['name']}/{track_name}"
         for track in tracks
@@ -100,6 +110,23 @@ def get_track_names(tracks: list[TrackConfig] = TRACKS_CONFIG) -> list[str]:
 
 
 def filter_case_ids(cases: pd.DataFrame, tracks_meta: pd.DataFrame) -> list[int]:
+    """
+    Filter the cases to download based on some criteria:
+        - The case should have the MBP track
+        - The patient should be at least 18 years old
+        - No EMOP
+        - The number of seconds should be more than a threshold
+        - One operation is forbidden
+
+    Note: This filter is not configurable on purpose, it is meant to be static.
+
+    Args:
+        cases (pd.DataFrame): Dataframe of the VitalDB cases
+        tracks_meta (pd.DataFrame): The meta-data of the cases.
+
+    Returns:
+        list[int]: List of the valid case IDs.
+    """
     cases_with_mbp = pd.merge(
         tracks_meta.query(f"tname == '{TRACK_NAME_MBP}'"),
         cases,
@@ -121,6 +148,16 @@ def filter_case_ids(cases: pd.DataFrame, tracks_meta: pd.DataFrame) -> list[int]
 
 
 def retrieve_tracks_raw_data(tracks_meta: pd.DataFrame) -> list[pd.DataFrame]:
+    """
+    Use the `hp_pred.data_retrieve_async` module to get new data.
+
+    Args:
+        tracks_meta (pd.DataFrame): The tracks' meta-data (track URL and case ids) to
+        retrieve.
+
+    Returns:
+        list[pd.DataFrame]: The tracks data for each case ID.
+    """
     tracks_url_and_case_id = [
         (f"/{track.tid}", int(track.caseid))  # type: ignore
         for track in tracks_meta.itertuples(index=False)
@@ -155,12 +192,31 @@ def format_track_raw_data_wav(track_raw_data: pd.DataFrame) -> pd.DataFrame:
 
 
 def format_track_raw_data_num(track_raw_data: pd.DataFrame) -> pd.DataFrame:
+    """
+    Format the track's raw data according to the Time column. The Time column is rounded
+    and we group the different values with the same rounded Time value.
+
+    Args:
+        track_raw_data (pd.DataFrame): Raw data retrieved from the VitalDB API.
+
+    Returns:
+        pd.DataFrame: Track data with integer Time and fewer NaN.
+    """
     track_raw_data.Time = (track_raw_data.Time / SAMPLING_TIME).astype(int)
 
     return track_raw_data.groupby("Time", as_index=False).first()
 
 
 def format_time_track_raw_data(track_raw_data: pd.DataFrame) -> pd.DataFrame:
+    """
+    Format the track's raw data. It chooses between the numeric and the wave formats.
+
+    Args:
+        track_raw_data (pd.DataFrame): Raw data retrieved from the VitalDB API.
+
+    Returns:
+        pd.DataFrame: Track data with integer Time and fewer NaN.
+    """
     track_raw_data = track_raw_data.astype(
         {
             column_name: "float32"
@@ -218,6 +274,17 @@ def post_process_track(
     track: pd.DataFrame,
     cases: pd.DataFrame,
 ) -> pd.DataFrame | None:
+    """
+    Check if the tracks has enough data and add some static features.
+
+    Args:
+        track (pd.DataFrame): Tracks corresponding to one case ID.
+        cases (pd.DataFrame): All cases information.
+
+    Returns:
+        pd.DataFrame | None: If the track data are not suitable, else return the track
+            data with its static data from cases.
+    """
     track_names = [
         column for column in track.columns if column not in ["Time", "caseid"]
     ]
@@ -249,6 +316,21 @@ def build_dataset(
     tracks_meta: pd.DataFrame,
     cases: pd.DataFrame,
 ) -> pd.DataFrame:
+    """
+    Build the dataset, there are three steps:
+    - Download the raw data from VitalDB API based on `tracks_meta`
+    - Format the timestamps
+    - Filter data which does not have enough data
+
+    Args:
+        tracks_meta (pd.DataFrame): The tracks' meta-data (track URL and case ids) to
+        retrieve.
+        cases (pd.DataFrame): All cases information.
+
+    Returns:
+        pd.DataFrame: The dataset with all the case IDs, their track values and static
+            data.
+    """
     # HTTP requests handled with asynchronous calls
     tracks_raw_data = retrieve_tracks_raw_data(tracks_meta)
 
