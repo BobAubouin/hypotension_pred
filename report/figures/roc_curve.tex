@@ -1,0 +1,68 @@
+\newcommand{\errorband}[5][]{ % x column, y column, error column, optional argument for setting style of the area plot
+% \pgfplotstableread{#2}\datatable
+    % Lower bound (invisible plot)
+    \addplot [draw=none, stack plots=y, forget plot] table [
+        x={#3},
+        y expr=\thisrow{#4}-2*\thisrow{#5},
+        , col sep=comma
+    ] {#2};
+
+    % Stack twice the error, draw as area plot
+    \addplot [draw=none, fill=gray!40, stack plots=y, area legend, #1] table [
+        x={#3},
+        y expr=4*\thisrow{#5},
+        , col sep=comma
+    ] {#2} \closedcycle;
+
+    % Reset stack using invisible plot
+    \addplot [forget plot, stack plots=y,draw=none] table [x={#3}, y expr=-(\thisrow{#4}+2*\thisrow{#5}), col sep=comma] {#2};
+}
+
+
+\begin{tikzpicture}
+
+\definecolor{darkgray176}{RGB}{176,176,176}
+\definecolor{lightgray204}{RGB}{204,204,204}
+\definecolor{steelblue31119180}{RGB}{31,119,180}
+
+\begin{axis}[
+legend cell align={left},
+legend style={
+  fill opacity=0.8,
+  draw opacity=1,
+  text opacity=1,
+  at={(0.97,0.03)},
+  anchor=south east,
+  draw=lightgray204
+},
+legend style={rounded corners=0.5mm, font=\footnotesize},
+tick align=outside,
+tick pos=left,
+x grid style={darkgray176},
+xlabel={1 - Specificity},
+xmajorgrids,
+xmin=0, xmax=1,
+xtick style={color=black},
+y grid style={darkgray176},
+ylabel={Sensitivity},
+ymajorgrids,
+ymin=0, ymax=1,
+ytick style={color=black}
+]
+
+\errorband[blue, opacity=0.2,forget plot]{../data/baseline_roc.csv}{fpr}{tpr}{tpr_std}
+\errorband[orange, opacity=0.2,forget plot]{../data/xgboost_roc.csv}{fpr}{tpr}{tpr_std}
+
+\addplot [semithick, blue] table[x=fpr, y=tpr, col sep=comma] {../data/baseline_roc.csv};
+\addplot [semithick, orange] table[x=fpr, y=tpr, col sep=comma] {../data/xgboost_roc.csv};
+
+\addlegendentry{baseline$(AUC = 0.67 \pm 0.04)$}
+\addlegendentry{model $(AUC = 0.75 \pm 0.01)$}
+\addplot [semithick, black, dashed, forget plot]
+table {%
+0 0
+1 1
+};
+\end{axis}
+
+\end{tikzpicture}
