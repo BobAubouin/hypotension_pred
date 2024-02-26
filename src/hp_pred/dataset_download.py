@@ -350,10 +350,14 @@ def build_dataset(
     ]
     logger.debug("Post post process is done.")
 
-    # On each case dataframe, count the number of tracks. -1 because Time column.
-    n_tracks = sum(len(track.columns) - 1 for track in tracks_post_processed)
+    # On each case dataframe, count the number of tracks.
+    all_track_names = set(get_track_names())
+    n_tracks = sum(
+        len(all_track_names & set(track.columns)) for track in tracks_post_processed
+    )
     logger.info(
-        f"Dataset succesfully built with {len(tracks_post_processed)} cases ({n_tracks} tracks) "
+        f"Dataset succesfully built with {len(tracks_post_processed):,d} cases "
+        f"({n_tracks:,d} tracks)."
     )
 
     return pd.concat(
@@ -378,13 +382,13 @@ def main():
     logger.debug("Done retrieving track meta data and cases CSV from VitalDB.")
 
     case_ids = filter_case_ids(cases, tracks_meta)
-    logger.info(f"Number of cases to consider: {len(case_ids)}\n")
+    logger.info(f"Number of cases to consider: {len(case_ids):,d}\n")
 
     track_names = get_track_names()
     targeted_tracks_meta = tracks_meta[
         tracks_meta.tname.isin(track_names) & tracks_meta.caseid.isin(case_ids)
     ]
-    logger.info(f"Number of tracks to download: {len(targeted_tracks_meta)}\n")
+    logger.info(f"Number of tracks to download: {len(targeted_tracks_meta):,d}\n")
 
     dataset = build_dataset(targeted_tracks_meta, cases)
 
