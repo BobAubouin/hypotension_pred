@@ -9,6 +9,10 @@
 \usepackage{booktabs}
 \usepackage[T1]{fontenc}
 \usepackage[table]{xcolor}
+\usepackage{tikz}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+
 \newtheorem*{remark}{Remark}
 
 
@@ -89,34 +93,70 @@ Patients are selected using the following criteria:
     \item All the static information about the patient are available
 \end{itemize}
 
-\section{Labelling the data}
-As there is no clear adopted definition of hypotension event automatic labelling of the data could be an arduous task. In the literature, it exists two different quantitative ways to define hypotension: using a relative threshold from baseline of mean or systolic blood pressure or using an absolute threshold on those value. Because the true blood pressure baseline might be hard to obtain, the first method is often inapplicable in practice. The second method, easier to implement is actually used for most of the research papers on this topic. However, this labelling method lacks of patient specificity, in fact, the baseline MAP of some patient patient might be close to the threshold such that labelled situation could correspond to normal situation. \medskip
+\section{Hypotension labelling}
 
-For our approach, a new method for labelling the hypotension events is proposed. Our guess is that the anesthesiologists in the surgery room are the more appropriate to diagnostic IOH. Thus, the idea is to take advantage of our future point of view to asses the potential of a low blood pressure to correspond to an IOH thanks to the anesthesiologist reaction in the minutes following the event. \medskip
 
-To treat an IOH event different possibilities can used depending on the cause:
+For this first work, we will use the standard labelling of hypotension event used in the literature. A hypotension event is defined as a mean arterial pressure (MAP) lower than 65mmHg for more than 1 minute. \medskip
+
+\textbf{Idea For future work:}
+
+
+
+As there is no clearly adopted definition of hypotension event automatic labelling of the data could be an arduous task. In the literature, it exists two different quantitative ways to define hypotension: using a relative threshold from baseline of mean or systolic blood pressure or using an absolute threshold on those values. Because the true blood pressure baseline might be hard to obtain, the first method is often inapplicable in practice. The second method, easier to implement is actually used for most of the research papers on this topic. However, this labelling method lacks of patient specificity, in fact, the baseline MAP of some patient might be close to the threshold such that labelled situation could correspond to normal situation. \medskip
+
+For our approach, a new method for labelling the hypotension events is proposed. Our guess is that the anesthesiologists in the surgery room are the more appropriate to diagnostic IOH. Thus, the idea is to take advantage of our future point of view to assesse the potential of a low blood pressure to correspond to an IOH thanks to the anesthesiologist reaction in the minutes following the event. \medskip
+
+To treat an IOH event different possibilities can be used depending on the cause:
 \begin{itemize}
     \item If the IOH is due to a too deep hypnosis, the hypnotic drug dosage must be adjusted.
     \item If the IOH is due to a too important fluid loss, the missing fluid must be replaced with blood or cristalloid.
     \item If the cause is the vasodilatation of the vessels, vasopressor drugs must be injected.
 \end{itemize}
 
-The first possibility can be verified easily using data from hypnotic drug dosage (i.e. propofol, desflurane or sevoflurane). The second also correspond to changes in drug injection profiles. However of those drug are mostly injected by bolus and only the total amount of drug injected during the anesthesia is recorded in vitalDB. The same problem apply to fluid replacement where only the total amount of fluid lost and injected is available in vitalDB.
+The first possibility can be verified easily using data from hypnotic drug dosage (i.e. propofol, desflurane or sevoflurane). The second also correspond to changes in drug injection profiles. However, of those drugs are mostly injected by bolus and only the total amount of drug injected during the anesthesia is recorded in vitalDB. The same problem applied to fluid replacement where only the total amount of fluid lost and injected is available in vitalDB. \medskip
+
+One idea to label the data could be to ask the anesthesiologist to label a part of the data. The train a model to predict the label of the anesthesiologist thanks to past and future data around the event (in contrast to the final model which will only used past data). This model could then be used to label the rest of the data. \medskip
 
 
+\section{Framing the problem}
 
+Framing the problem is an important step in the machine learning process for clinical application. In fact recent paper \cite{lauritsenFramingMachineLearning2021} have shown that the way the problem is framed can have a huge impact on the performance of the model and the way it could be used in practice. \medskip
+
+In the litterature, \cite{hatibMachinelearningAlgorithmPredict2018} and \cite{leeDeepLearningModels2021} have used a "fixed time to onset" approach. For this approach, the model is trained to respond to one particular question: "Will the patient have a hypotension event in the next $X$ minutes?" where $X$ was 5, 10 or 15 minutes. If this type of framing leads to the best algorithmic performances, this does not respond to a solid clinical question. In fact, with this approach a perfect model would be useless in practice. A more relevant framing have been proposed in \cite{enevoldsenSelectionBiasHypotension2023} where the question is: "Will the patient have a hypotension event in the next $3$ to $10$ minutes?". This framing correspond to a sliding window approach. An illustration of the existing approach and the one proposed here is given in Fig.~\ref{fig:framing}.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\textwidth]{figures/framing.pdf}
+    \caption{Illustration of the different framing of the problem.}
+    \label{fig:framing}
+\end{figure}
+
+The parameters of our framing are the following:
+\begin{itemize}
+    \item The size of the observation window (first try with 3 minutes)
+    \item The leading time (first try with 3 minutes)
+    \item The size of the prediction window (first try with 7 minutes)
+    \item The recovery time (first try with 15 minutes, should not change too much)
+\end{itemize}
+
+The impact of those parameters must be studied in this work or the followings.
 
 \section{Data pre-processing}
 
-First, to remove time where arterial blood pressure is not monitored, all the sample where MAP<40mmHg are removed. In addition, to remove peak values, sample where MAP >150 are also removed.
+The following flow chart describes the data selection of each segment of the data. 
 
-For physiological signal, missing value are replaced by last valid measured value. For drug rates value and MAC missing values are replace by last valid value or 0 if no measures are available.
+\begin{figure}[h]
+    \centering
+    \input{figures/data_preprocessing.tex}
+    \caption{Data pre-processing flow chart}
+    \label{fig:preprocessing}
+\end{figure}
 
 
 
 \section{Evaluation}
 
-To fairly evaluate the potential of our method against baseline and evaluate uncertainty on our results a Leave One Out Cross-Validation (LOOCV) is used \cite{meghnoudjSparseOptimalControlbased2024}. This method consist on partitioning the set of patient in $k$ distinct subset. Then to loops are nested, in the outer one a subset is leaved out before any training on the data and is used as a test set to asses the performance of the method. In the inner one, a subset is leaved out to be used as a validation set for the hyperparameters tuning. This method is illustrated on Fig.~\ref{fig:loocv}.
+To fairly evaluate the potential of our method against baseline and evaluate uncertainty on our results a Leave One Out Cross-Validation (LOOCV) is used \cite{meghnoudjSparseOptimalControlbased2024}. This method consist on partitioning the set of patient in $k$ distinct subset. Then to loops are nested, in the outer one a subset is leaved out before any training on the data and is used as a test set to assesse the performance of the method. In the inner one, a subset is leaved out to be used as a validation set for the hyperparameters tuning. This method is illustrated on Fig.~\ref{fig:loocv}.
 
 \begin{figure}
     \centering
@@ -125,16 +165,24 @@ To fairly evaluate the potential of our method against baseline and evaluate unc
     \label{fig:loocv}
 \end{figure}
 
-In this work the metric used is the Aera Under the Receiver operating characteristic curve (AUC). This curve evaluate the ability of a binary classifier at different threshold value and is usually used in medical field. It is the plot of the True Positive error against the False positive error (or sensitivity against 1 - specificity).
+In this work the metric used is the Aera Under the Receiver operating characteristic curve (AUC) \cite{masonAreasRelativeOperating2002a}. This curve evaluates the ability of a binary classifier at different threshold value and is usually used in medical field. It is the plot of the True Positive error against the False positive error (or sensitivity against 1 - specificity). The way to associate a $p$-value to this metric must be inestigated in \cite{masonAreasRelativeOperating2002a}.
 
 \section{Baseline}
 
+A fair baseline for the prediction of hypotension have been recently published in \cite{jacquet-lagrezePredictionIntraoperativeHypotension2022}. In this article they demonstrate that both linear extrapolation of MAP value and last value of MAP are good baseline for the prediction of hypotension. In this work, we used the last value of MAP as a baseline, as it is simplest to implement. \medskip
 
-For IOH prediction, the baseline must be the ability of the mean arterial pressure to predict the events. In fact it is this value that is currently on the clinicals monitors and used by the 
+Results of the baseline are given in Fig.~\ref{fig:baseline}.
+
+\begin{figure}[h]
+    \centering
+    \input{figures/baseline_roc.tex}
+    \caption{Receiver operating characteristic for prediction of hypotension with last MAP value as a baseline.}
+    \label{fig:baseline}
+\end{figure}
 
 
 \bibliographystyle{ieeetr}
 \bibliography{bibli}
-
+ 
 
 \end{document}
