@@ -171,14 +171,21 @@ In this work the metric used is the Aera Under the Receiver operating characteri
 
 A fair baseline for the prediction of hypotension have been recently published in \cite{jacquet-lagrezePredictionIntraoperativeHypotension2022}. In this article they demonstrate that both linear extrapolation of MAP value and last value of MAP are good baseline for the prediction of hypotension. In this work, we used the last value of MAP as a baseline, as it is simplest to implement. \medskip
 
-Results of the baseline are given in Fig.~\ref{fig:baseline}.
 
-\begin{figure}[h]
-    \centering
-    \input{figures/baseline_roc.tex}
-    \caption{Receiver operating characteristic for prediction of hypotension with last MAP value as a baseline.}
-    \label{fig:baseline}
-\end{figure}
+\section{Proposed model}
+
+To extract the features from the observation window, an exponential moving window (EMW) is used, as in \cite{lundbergExplainableMachinelearningPredictions2018}. Three different times constants are used for the EMW: 10s, 60s, 300s in order to capture different time scales. Both mean and standard deviation of the EMA are used as features. Thyis leads to a total of $6 \times 9 = 54$ time dependant feature plus 5 static features describing patient condition. \medskip
+
+The model used is an Extreme Gradient Boosting (XGBoost) \cite{chenXGBoostScalableTree2016}. This model is a tree-based model that has been shown to be efficient in many medical applications \cite{chenXGBoostScalableTree2016}. The model is trained to predict the hypotension event in the prediction window. \medskip
+
+The hyperparameters of the model are tuned using a grid search on the validation set of the LOOCV. The considered hyperparameters are the following:
+\begin{itemize}
+    \item The number of trees
+    \item The maximum depth of the trees
+    \item The learning rate
+    \item The minimum child weight
+\end{itemize}
+
 
 
 \bibliographystyle{ieeetr}
