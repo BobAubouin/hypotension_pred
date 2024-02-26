@@ -176,6 +176,44 @@ def format_time_track_raw_data(track_raw_data: pd.DataFrame) -> pd.DataFrame:
     )
 
 
+def _has_enough_data(
+    track: pd.Series,
+    sampling_rate: int,
+    percent_missing_data_threshold: float = PERCENT_MISSING_DATA_THRESHOLD,
+) -> bool:
+    """
+    Check if there is enough data in the track data.
+
+    The tracks have different sampling time (lower of the second here)
+    For example, if track has 200 rows with sampling time of .5, at best there would be
+    100 rows with value (not NaN).
+    An actual track might have different amount of values, lesser than 100.
+    We want to make sure those tracks have enough data. So we fix a percentage over this
+    max number of values (100).
+    Let's say we are okay to have 60% of the max number of values (60).
+    Then we make sure that we have 60 rows with values.
+
+    Args:
+        track (pd.Series): The data values.
+        sampling_rate (int): The sampling rate of the track.
+        percent_missing_data_threshold (float, optional): How much missng data we allow.
+            Defaults to PERCENT_MISSING_DATA_THRESHOLD.
+
+    Returns:
+        bool: There is enough data (True), are too much NaN values (False).
+    """
+    max_number_values = len(track) / sampling_rate
+    acceptable_number_values = (1 - percent_missing_data_threshold) * max_number_values
+    number_values = track.notna().sum()
+
+    has_not_enough_data = number_values < acceptable_number_values
+
+    if has_not_enough_data:
+        return False
+
+    return True
+
+
 def post_process_track(
     track: pd.DataFrame,
     cases: pd.DataFrame,
@@ -190,33 +228,8 @@ def post_process_track(
         if not device_name in DEVICE_NAME_TO_SAMPLING_RATE:
             continue
 
-        # The tracks have different sampling time (lower of the second here)
-        # For example, if track has 200 rows with sampling time of .5, at best
-        # there would be 100 rows with value (not NaN).
-        # An actual track might have different amount of values, lesser than 100.
-        # We want to make sure those tracks have enough data. So we fix a
-        # percentage over this max number of values (100).
-        # Let's say we are okay to have 60% of the max number of values (60).
-        # Then we make sure that we have 60 rows with values.
-        max_number_values = len(track) / DEVICE_NAME_TO_SAMPLING_RATE[device_name]
-        acceptable_number_values = (1 - PERCENT_MISSING_DATA_THRESHOLD) * max_number_values
-        number_values = track[track_name].notna().sum()
-        has_not_enough_data = number_values < acceptable_number_values
-
-        # sampling_rate_hz = DEVICE_NAME_TO_SAMPLING_RATE[device_name]
-        # minimum_number_of_nan = len(track) * min(
-        #     0, (1 - SAMPLING_TIME / sampling_rate_hz)
-        # )
-        # maximum_number_of_acceptable_nan = (
-        #     len(track) - minimum_number_of_nan
-        # ) * PERCENT_MISSING_DATA_THRESHOLD
-
-        # has_not_enough_data = (
-        #     track[track_name].isna().sum()
-        #     > minimum_number_of_nan + maximum_number_of_acceptable_nan
-        # )
-
-        if has_not_enough_data:
+        sampling_rate = DEVICE_NAME_TO_SAMPLING_RATE[device_name]
+        if not _has_enough_data(track[track_name], sampling_rate):
             logger.debug(
                 f"Case {int(track.caseid.iloc[0]):,d}, track {track_name} has not enough data."
             )
