@@ -298,7 +298,7 @@ def post_process_track(
         sampling_rate = DEVICE_NAME_TO_SAMPLING_RATE[device_name]
         if not _has_enough_data(track[track_name], sampling_rate):
             logger.debug(
-                f"Case {int(track.caseid.iloc[0]):,d}, track {track_name} has not enough data."
+                f"Case {int(track.caseid.iloc[0]):5,d}, track {track_name} has not enough data."
             )
             return None
 
