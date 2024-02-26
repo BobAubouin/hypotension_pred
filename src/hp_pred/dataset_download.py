@@ -9,12 +9,7 @@ import pandas as pd
 
 from hp_pred.constants import VITAL_API_BASE_URL
 from hp_pred.data_retrieve_async import retrieve_tracks_raw_data_async
-from hp_pred.tracks_config import (
-    DEVICE_NAME_TO_SAMPLING_RATE,
-    STATIC_DATA_NAMES,
-    TRACKS_CONFIG,
-    TrackConfig,
-)
+from hp_pred.tracks_config import STATIC_DATA_NAMES, TRACKS_CONFIG, TrackConfig
 
 TRACKS_META_URL = f"{VITAL_API_BASE_URL}/trks"
 CASE_INFO_URL = f"{VITAL_API_BASE_URL}/cases"
@@ -231,44 +226,6 @@ def format_time_track_raw_data(track_raw_data: pd.DataFrame) -> pd.DataFrame:
     )
 
 
-def _has_enough_data(
-    track: pd.Series,
-    sampling_rate: int,
-    percent_missing_data_threshold: float = PERCENT_MISSING_DATA_THRESHOLD,
-) -> bool:
-    """
-    Check if there is enough data in the track data.
-
-    The tracks have different sampling time (lower of the second here)
-    For example, if track has 200 rows with sampling time of .5, at best there would be
-    100 rows with value (not NaN).
-    An actual track might have different amount of values, lesser than 100.
-    We want to make sure those tracks have enough data. So we fix a percentage over this
-    max number of values (100).
-    Let's say we are okay to have 60% of the max number of values (60).
-    Then we make sure that we have 60 rows with values.
-
-    Args:
-        track (pd.Series): The data values.
-        sampling_rate (int): The sampling rate of the track.
-        percent_missing_data_threshold (float, optional): How much missng data we allow.
-            Defaults to PERCENT_MISSING_DATA_THRESHOLD.
-
-    Returns:
-        bool: There is enough data (True), are too much NaN values (False).
-    """
-    max_number_values = len(track) / sampling_rate
-    acceptable_number_values = (1 - percent_missing_data_threshold) * max_number_values
-    number_values = track.notna().sum()
-
-    has_not_enough_data = number_values < acceptable_number_values
-
-    if has_not_enough_data:
-        return False
-
-    return True
-
-
 def post_process_track(
     track: pd.DataFrame,
     cases: pd.DataFrame,
@@ -284,23 +241,6 @@ def post_process_track(
         pd.DataFrame | None: If the track data are not suitable, else return the track
             data with its static data from cases.
     """
-    track_names = [
-        column for column in track.columns if column not in ["Time", "caseid"]
-    ]
-
-    # Ensure data the patient has enough data.
-    for track_name in track_names:
-        device_name = track_name.split("/")[0]
-        if not device_name in DEVICE_NAME_TO_SAMPLING_RATE:
-            continue
-
-        sampling_rate = DEVICE_NAME_TO_SAMPLING_RATE[device_name]
-        if not _has_enough_data(track[track_name], sampling_rate):
-            logger.debug(
-                f"Case {int(track.caseid.iloc[0]):5,d}, track {track_name} has not enough data."
-            )
-            return None
-
     # NOTE: caseid is unique in a track, asserted at build time.
     case_id = track.caseid.iloc[0]
     static_data = cases.query(f"caseid == {case_id}")[STATIC_DATA_NAMES + ["caseid"]]
