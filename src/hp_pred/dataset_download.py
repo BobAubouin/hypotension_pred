@@ -5,6 +5,7 @@ import logging
 from collections import defaultdict
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from hp_pred.constants import VITAL_API_BASE_URL
@@ -21,6 +22,24 @@ CASEEND_CASE_THRESHOLD = 3600
 FORBIDDEN_OPNAME_CASE = "transplant"
 PERCENT_MISSING_DATA_THRESHOLD = 0.2
 AGE_CASE_THRESHOLD = 18
+
+NAME_TO_DTYPES = {
+    "Solar8000/PLETH_SPO2": np.float32,
+    "Solar8000/ART_MBP": np.float32,
+    "Solar8000/ART_SBP": np.float32,
+    "Solar8000/ART_DBP": np.float32,
+    "Solar8000/ETCO2": np.float32,
+    "Solar8000/HR": np.float32,
+    "Solar8000/RR": np.float32,
+    "Primus/MAC": np.float32,
+    "Orchestra/PPF20_CT": np.float32,
+    "age": np.uint16,
+    "bmi": np.float16,
+    "preop_cr": np.float32,
+    "asa": "category",
+    "preop_htn": "category",
+    "opname": "category",
+}
 
 
 def parse() -> tuple[str, Path]:
@@ -173,10 +192,17 @@ def retrieve_tracks_raw_data(tracks_meta: pd.DataFrame) -> list[pd.DataFrame]:
         case_id_to_track_raw_data_list[case_id].append(track_raw_data)
     logger.debug("Case ID coherence done.")
 
-    tracks_raw_data_gathered = [
-        pd.concat(track_raw_data_list)
-        for track_raw_data_list in case_id_to_track_raw_data_list.values()
-    ]
+    # tracks_raw_data_gathered = [
+    #     pd.concat(track_raw_data_list)
+    #     for track_raw_data_list in case_id_to_track_raw_data_list.values()
+    # ]
+    # TODO: Perform caseid format here with a two level index here and concat in a single df here
+    # FIXME: Too much track included, it is too much list of too big object.
+    exit()
+    tracks_raw_data_gathered: list[pd.DataFrame] = []
+    for track_raw_data_list in case_id_to_track_raw_data_list.values():
+        tracks_raw_data_gathered.append(pd.concat(track_raw_data_list))
+
     logger.info("Done gathering raw track data by case ID.")
     return tracks_raw_data_gathered
 
@@ -231,7 +257,7 @@ def post_process_track(
     cases: pd.DataFrame,
 ) -> pd.DataFrame | None:
     """
-    Check if the tracks has enough data and add some static features.
+    Add some static features.
 
     Args:
         track (pd.DataFrame): Tracks corresponding to one case ID.
@@ -249,6 +275,29 @@ def post_process_track(
         return None
 
     return pd.merge(track, static_data, on="caseid")
+
+def set_dtypes(dataset: pd.DataFrame) -> pd.DataFrame:
+    # Set index
+    dataset = dataset.astype({"caseid": np.uint16, "Time": np.uint32})
+    dataset = dataset.set_index(["caseid", "Time"], drop=True)
+    print(dataset.columns)
+    # dataset.drop(columns="Unnamed: 0")
+
+    # Set columns
+    dataset = dataset.astype(NAME_TO_DTYPES)
+
+    return dataset
+
+
+def export_to_csv(dataset: pd.DataFrame, outfile: Path) -> None:
+    dataset_typed = set_dtypes(dataset)
+
+    dataset_typed.to_csv(outfile)
+
+
+def import_from_csv(outfile: Path) -> pd.DataFrame:
+    return set_dtypes(pd.read_csv(outfile))
+
 
 
 def build_dataset(
@@ -331,9 +380,10 @@ def main():
 
     dataset = build_dataset(targeted_tracks_meta, cases)
 
+    exit()
     dataset_file = output_folder / "data_async.csv"
+    export_to_csv(dataset, dataset_file)
     logger.info(f"Dataset is saved in {dataset_file}.")
-    dataset.to_csv(dataset_file)
 
 
 if __name__ == "__main__":
