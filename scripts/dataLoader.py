@@ -11,7 +11,6 @@ MIN_TIME_IOH = 60  # minimum time for the IOH to be considered as IOH (in second
 MIN_VALUE_IOH = 65  # minimum value for the mean arterial pressure to be considered as IOH (in mmHg)
 MIN_MPB_SGEMENT = 40  # minimum acceptable value for the mean arterial pressure (in mmHg)
 MAX_MPB_SGEMENT = 150  # maximum acceptable value for the mean arterial pressure (in mmHg)
-MAX_DELTA_MPB_SGEMENT = 30  # maximum acceptable value for the mean arterial pressure variation (in mmHg/minutes)
 MAX_NAN_SGEMENT = 0.2  # maximum acceptable value for the nan in the segment (in %)
 NUMBER_CV_FOLD = 5  # number of cross-validation fold
 RECOVERY_TIME = 10*60  # recovery time after the IOH (in seconds)
@@ -81,8 +80,9 @@ def label_caseid(df_case: pd.DataFrame, sampling_time: int):
     label = df_case.mbp.rolling(MIN_TIME_IOH//sampling_time,
                                 min_periods=1).apply(lambda x: (x < MIN_VALUE_IOH).loc[~np.isnan(x)].all())
     label.fillna(0, inplace=True)
-    label = (label + label.shift(-MIN_TIME_IOH//sampling_time, fill_value=0)).astype(bool).astype(int)
-    # if label pass from 1 to 0, we keep the 1 for the next MIN_TIME_IOH
+    for i in range(1, MIN_TIME_IOH//sampling_time):
+        label = label + label.shift(-1, fill_value=0)
+    label = label.astype(bool).astype(int)
 
     # add label to the data
     df_case.insert(0, 'label', label.astype(int))
@@ -100,7 +100,6 @@ def validate_segment(
 
     The conditions to validate the segment are:
     - The mean arterial pressure (mbp) is between 40 and 150 mmHg.
-    - The variation of the mean arterial pressure (mbp) is less than 30 mmHg/minutes.
     - The label is not in the observation window not in the recovery time.
     - The nan values are less than 10% of the segment.
 
@@ -126,9 +125,6 @@ def validate_segment(
         return False
     # test any map>150mmHg
     if (segment.mbp > MAX_MPB_SGEMENT).any():
-        return False
-    # test any delta MAP > 30mmHg/minutes
-    if (segment.mbp.diff().rolling(window=60//sampling_time).mean().max()) > MAX_DELTA_MPB_SGEMENT:
         return False
     # test any label in the observation window
     if segment.label[:(observation_windows+leading_time)//sampling_time].any():
@@ -389,4 +385,4 @@ if __name__ == "__main__":
     )
 
     print(f"Number of ioh: {dataframe.label.sum()}")
-    dataframe.to_csv('data/data_baseline.csv', index=False)
+    # dataframe.to_csv('data/data_baseline.csv', index=False)
