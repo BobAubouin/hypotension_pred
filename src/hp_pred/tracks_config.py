@@ -1,6 +1,6 @@
 from typing import TypedDict
 
-STATIC_DATA_NAMES = ["age", "bmi", "asa", "preop_cr", "preop_htn", "opname"]
+STATIC_DATA_NAMES = ["age", "bmi", "asa", "preop_cr", "preop_htn", "opname", "sex"]
 
 SAMPLING_TIME = 2
 
@@ -25,9 +25,11 @@ TRACKS_CONFIG = [
     ),
     TrackConfig(name="Orchestra", tracks=["PPF20_CT"]),
     TrackConfig(name="Primus", tracks=["MAC"]),
+    # TrackConfig(name="BIS", tracks=["BIS"])
 ]
 
 DEVICE_NAME_TO_SAMPLING_RATE = {
     "Solar8000": 2,
     "Primus": 7,
+    "BIS": 1,
 }
