@@ -20,7 +20,7 @@ DEVICE_NAME_TO_SAMPLING_RATE = {
     "Primus": 7,
     "BIS": 1
 }
-POSSIBLE_SIGNAL_NAME = ['mbp', 'sbp', 'dbp', 'hr', 'rr', 'spo2', 'etco2', 'mac', 'pp_ct', 'bis']
+POSSIBLE_SIGNAL_NAME = ['mbp', 'sbp', 'dbp', 'hr', 'rr', 'spo2', 'etco2', 'mac', 'pp_ct']  # , 'bis'
 
 
 def preprocess_bpdata(df_case: pd.DataFrame, sampling_time: int):
@@ -309,10 +309,13 @@ def dataLoaderParallel(half_times: list[int] = [10, 60, 5*60],
                             'Solar8000/ETCO2': 'etco2',
                             'Orchestra/PPF20_CT': 'pp_ct',
                             'Primus/MAC': 'mac',
-                            'BIS/BIS': 'bis'}, inplace=True)
+                            }, inplace=True)  # 'BIS/BIS': 'bis'
 
     # fill the nan value by 0 in the propo target
     rawData['pp_ct'].fillna(0, inplace=True)
+
+    # replace 'M' by 1 and 'F' by 0 in sex column
+    rawData['sex'] = (rawData.sex == 'M').astype(int)
 
     formattedData = pd.DataFrame()
 
