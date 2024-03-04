@@ -1,6 +1,15 @@
+import numpy as np
 from typing import TypedDict
 
-STATIC_DATA_NAMES = ["age", "bmi", "asa", "preop_cr", "preop_htn", "opname", "sex"]
+STATIC_DATA_NAMES = ["age", "bmi", "asa", "preop_cr", "preop_htn", "opname"]
+STATIC_NAME_TO_DTYPES = {
+    "age": np.uint16,
+    "bmi": np.float16,
+    "preop_cr": np.float32,
+    "asa": "category",
+    "preop_htn": "category",
+    "opname": "category",
+}
 
 SAMPLING_TIME = 2
 
