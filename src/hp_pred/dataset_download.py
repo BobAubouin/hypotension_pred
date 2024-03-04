@@ -1,7 +1,6 @@
 import argparse
 import asyncio
 import datetime
-import json
 import logging
 from pathlib import Path
 
@@ -336,38 +335,6 @@ def build_dataset(
 
     logger.debug("Build dataset: End")
     return tracks, static_data
-
-
-def export_dataframe(
-    dataframe: pd.DataFrame, filename: str, output_folder: Path
-) -> None:
-    logger.debug(f"Export {filename}: Start")
-
-    dtypes = dataframe.dtypes.apply(lambda x: x.name).to_dict()
-    dtypes_file = output_folder / f"{filename}_dtypes.json"
-    with open(dtypes_file, mode="w", encoding="utf-8") as file:
-        json.dump(dtypes, file)
-    logger.info(f"Export {filename}: {dtypes_file} exported")
-
-    data_file = output_folder / f"{filename}.csv"
-    dataframe.to_csv(data_file)
-    logger.info(f"Export {filename}: {data_file} exported")
-
-    logger.debug(f"Export {filename}: End")
-
-
-def import_dataframe(data_file_path: str, dtypes_file_path: str) -> pd.DataFrame:
-    data_file = Path(data_file_path)
-    dtypes_file = Path(dtypes_file_path)
-    assert data_file.exists(), f"{data_file} is not found."
-    assert dtypes_file.exists(), f"{dtypes_file} is not found."
-    assert data_file.suffix == ".csv", "Data file should be CSV file."
-    assert dtypes_file.suffix == ".json", "Data types file should be JSON file."
-
-    with open(dtypes_file, mode="r", encoding="utf-8") as file:
-        column_to_dtype = json.load(file)
-
-    return pd.read_csv(data_file, dtype=column_to_dtype)
 
 
 def main():
