@@ -128,6 +128,8 @@ def filter_case_ids(cases: pd.DataFrame, tracks_meta: pd.DataFrame) -> list[int]
         - No EMOP
         - The number of seconds should be more than a threshold
         - One operation is forbidden
+        - Blood loss should be NaN or smaller of the threshold
+        - The case should have some static data which are mandatory.
 
     Note: This filter is not configurable on purpose, it is meant to be static.
 
@@ -174,13 +176,14 @@ def filter_case_ids(cases: pd.DataFrame, tracks_meta: pd.DataFrame) -> list[int]
 def retrieve_tracks_raw_data(tracks_meta: pd.DataFrame) -> pd.DataFrame:
     """
     Use the `hp_pred.data_retrieve_async` module to get new data.
+    Plus concatenate all the track, set types for track and caseid.
 
     Args:
         tracks_meta (pd.DataFrame): The tracks' meta-data (track URL and case ids) to
         retrieve.
 
     Returns:
-        list[pd.DataFrame]: The tracks data for each case ID.
+        pd.DataFrame: The tracks data
     """
     logger.debug("Retrieve data from VitalDB API: Start")
 
@@ -264,6 +267,13 @@ def format_time_track_raw_data(tracks_raw_data: pd.DataFrame) -> pd.DataFrame:
 
 
 def to_parquet(tracks: pd.DataFrame, output_folder: Path) -> None:
+    """
+    Create `.parquet` files from tracks, one file per case ID.
+
+    Args:
+        tracks (pd.DataFrame): Tracks data, caseid and Time
+        output_folder (Path): general destination folder
+    """
     logger.debug("Parquet export: Start")
     parquet_folder = output_folder / PARQUET_SUBFOLDER_NAME
     n_export = 0
@@ -287,7 +297,6 @@ def build_dataset(
     Build the dataset, there are three steps:
     - Download the raw data from VitalDB API based on `tracks_meta`
     - Format the timestamps
-    - Filter data which does not have enough data
 
     Args:
         tracks_meta (pd.DataFrame): The tracks' meta-data (track URL and case ids) to
@@ -295,8 +304,8 @@ def build_dataset(
         cases (pd.DataFrame): All cases information.
 
     Returns:
-        pd.DataFrame: The dataset with all the case IDs, their track values and static
-            data.
+        pd.DataFrame: The dataset with all the case IDs (track time series)
+        pd.DataFrame: Static data for each case
     """
     logger.debug("Build dataset: Start")
     case_ids = filter_case_ids(cases, tracks_meta)
