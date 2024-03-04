@@ -66,7 +66,7 @@ def parse() -> tuple[str, Path, int]:
 
     log_level_name = args.log_level_name
     output_folder = Path(args.output_folder)
-    group_size = args.group_size
+    group_size = int(args.group_size)
 
     return log_level_name, output_folder, group_size
 
