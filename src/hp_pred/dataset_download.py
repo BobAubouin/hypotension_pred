@@ -313,6 +313,7 @@ def build_dataset(
         f"Number of groups {len(case_ids_groups)}"
     )
 
+    (output_folder / PARQUET_SUBFOLDER_NAME).mkdir(exist_ok=True)
     for i, case_ids_group in enumerate(case_ids_groups):
         logger.debug(f"Buid dataset: Group {i}")
         tracks_meta_group = tracks_meta[tracks_meta.caseid.isin(case_ids_group)]
