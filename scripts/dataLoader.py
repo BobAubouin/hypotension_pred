@@ -26,7 +26,8 @@ POSSIBLE_SIGNAL_NAME = ['mbp', 'sbp', 'dbp', 'hr', 'rr', 'spo2', 'etco2', 'mac',
 def preprocess_bpdata(df_case: pd.DataFrame, sampling_time: int):
     """ Preprocess the blood pressure data.
 
-    Remove beginning and end of the surgery (where the blood pressure is too low).And remove the peaks on the mean arterial pressure.
+    Remove beginning and end of the surgery (where the blood pressure is too low).
+    And remove the peaks on the mean arterial pressure.
 
     Parameters
     ----------
@@ -48,7 +49,6 @@ def preprocess_bpdata(df_case: pd.DataFrame, sampling_time: int):
     df_case = df_case[(np.cumsum(case_valid_mask) > 0) & (np.cumsum(case_valid_mask[::-1])[::-1] > 0)].copy()
 
     # remove peaks on the mean arterial pressure
-
     rolling_mean_mbp = df_case.mbp.rolling(window=WINDOW_SIZE_PEAK//sampling_time, center=True, min_periods=10).mean()
     rolling_mean_sbp = df_case.sbp.rolling(window=WINDOW_SIZE_PEAK//sampling_time, center=True, min_periods=10).mean()
     rolling_mean_dbp = df_case.dbp.rolling(window=WINDOW_SIZE_PEAK//sampling_time, center=True, min_periods=10).mean()
@@ -66,20 +66,21 @@ def label_caseid(df_case: pd.DataFrame, sampling_time: int):
 
     Parameters:
     -----------
-    df_case : pd.DataFrame 
+    df_case : pd.DataFrame
         The dataframe containing the case data.
     sampling_time : int
         The sampling time in seconds.
 
     Returns
     -------
-    pd.DataFrame: 
+    pd.DataFrame:
         The dataframe with the label column added.
     """
     # create the label for the case
     label = df_case.mbp.rolling(MIN_TIME_IOH//sampling_time,
                                 min_periods=1).apply(lambda x: (x < MIN_VALUE_IOH).loc[~np.isnan(x)].all())
     label.fillna(0, inplace=True)
+
     for i in range(1, MIN_TIME_IOH//sampling_time):
         label = label + label.shift(-1, fill_value=0)
     label = label.astype(bool).astype(int)
@@ -120,6 +121,7 @@ def validate_segment(
         True if the segment is valid, False otherwise.
     """
     segment_length = segment.shape[0]
+
     # test any map<40mmHg
     if (segment.mbp < MIN_MPB_SGEMENT).any():
         return False
@@ -214,15 +216,18 @@ def process_cases(
     segment_shift = window_shift // sampling_time
 
     for id_start in range(0, df_case.shape[0] - segment_length, segment_shift):
+        number_of_raw_segment += 1
+
         segment = df_case.iloc[id_start:id_start + segment_length]
         previous_segment = df_case.iloc[max(0, id_start - RECOVERY_TIME//sampling_time):id_start]
-        number_of_raw_segment += 1
+
         if not validate_segment(segment, previous_segment, sampling_time, observation_windows, leading_time):
             continue
-
         number_of_selected_segement += 1
+
         segment_obs = segment.iloc[:observation_windows//sampling_time]
         segment_pred = segment.iloc[(observation_windows + leading_time)//sampling_time:]
+
         # create the time series features
         segment_data = pd.DataFrame()
         for half_time in half_times:
@@ -231,6 +236,7 @@ def process_cases(
                     halflife=half_time//sampling_time).mean().iloc[-1]]
                 segment_data[f'{signal}_var_{half_time}'] = [segment_obs[signal].ewm(
                     halflife=half_time//sampling_time).std().iloc[-1]]
+
         # add the label of the segment
         segment_data['label'] = [(segment_pred.label.sum() > 0).astype(int)]
         # add time of the segment
@@ -269,7 +275,7 @@ def dataLoaderParallel(half_times: list[int] = [10, 60, 5*60],
 
     Parameters
     ----------
-    halft_times : List[int] 
+    halft_times : List[int]
         List of half-time to use in exponential moving average and variance (seconds). Default is [10, 60, 5*60].
     signal_name : List[str]
         List of signals name to consider. Default is ['mbp'].
