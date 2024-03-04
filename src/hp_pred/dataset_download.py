@@ -1,16 +1,20 @@
 import argparse
 import asyncio
 import datetime
+import json
 import logging
-from collections import defaultdict
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 from hp_pred.constants import VITAL_API_BASE_URL
 from hp_pred.data_retrieve_async import retrieve_tracks_raw_data_async
-from hp_pred.tracks_config import STATIC_DATA_NAMES, TRACKS_CONFIG, TrackConfig
+from hp_pred.tracks_config import (
+    STATIC_DATA_NAMES,
+    STATIC_NAME_TO_DTYPES,
+    TRACKS_CONFIG,
+    TrackConfig,
+)
 
 TRACKS_META_URL = f"{VITAL_API_BASE_URL}/trks"
 CASE_INFO_URL = f"{VITAL_API_BASE_URL}/cases"
@@ -23,26 +27,12 @@ FORBIDDEN_OPNAME_CASE = "transplant"
 PERCENT_MISSING_DATA_THRESHOLD = 0.2
 AGE_CASE_THRESHOLD = 18
 
-NAME_TO_DTYPES = {
-    "Solar8000/PLETH_SPO2": np.float32,
-    "Solar8000/ART_MBP": np.float32,
-    "Solar8000/ART_SBP": np.float32,
-    "Solar8000/ART_DBP": np.float32,
-    "Solar8000/ETCO2": np.float32,
-    "Solar8000/HR": np.float32,
-    "Solar8000/RR": np.float32,
-    "Primus/MAC": np.float32,
-    "Orchestra/PPF20_CT": np.float32,
-    "age": np.uint16,
-    "bmi": np.float16,
-    "preop_cr": np.float32,
-    "asa": "category",
-    "preop_htn": "category",
-    "opname": "category",
-}
+PARQUET_SUBFOLDER_NAME = "cases"
+BASE_FILENAME_DATASET = "cases_data"
+BASE_FILENAME_STATIC_DATA = "static_data"
 
 
-def parse() -> tuple[str, Path]:
+def parse() -> tuple[str, Path, int]:
     parser = argparse.ArgumentParser(
         description="Download the VitalDB data for hypertension prediction."
     )
@@ -58,6 +48,14 @@ def parse() -> tuple[str, Path]:
     )
 
     parser.add_argument(
+        "-s",
+        "--group_size",
+        type=str,
+        default=950,
+        help="Amount of cases dowloaded and processed. (default: %(default)s)",
+    )
+
+    parser.add_argument(
         "-o",
         "--output_folder",
         type=str,
@@ -69,29 +67,29 @@ def parse() -> tuple[str, Path]:
 
     log_level_name = args.log_level_name
     output_folder = Path(args.output_folder)
+    group_size = args.group_size
 
-    return log_level_name, output_folder
+    return log_level_name, output_folder, group_size
 
 
-def setup_logger(output_folder: Path, log_level_name: str):
+def setup_logger(output_folder: Path, log_level: str):
     global logger
     logger = logging.getLogger("log")
 
-    log_level = logging.getLevelNamesMapping()[log_level_name]
-    logger.setLevel(log_level)
+    logger.setLevel(logging.DEBUG)
 
     log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     log_formatter = logging.Formatter(log_format)
 
     # Console handler, log everything.
     console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.DEBUG)
+    console_handler.setLevel(log_level)
     console_handler.setFormatter(log_formatter)
 
     # File handler
     log_file_name = output_folder / f"run-{datetime.datetime.now()}.log"
     file_handler = logging.FileHandler(log_file_name)
-    file_handler.setLevel(log_level)
+    file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(log_formatter)
 
     # Add both handlers to the logger
@@ -140,27 +138,36 @@ def filter_case_ids(cases: pd.DataFrame, tracks_meta: pd.DataFrame) -> list[int]
     Returns:
         list[int]: List of the valid case IDs.
     """
+    logger.debug("Filter case IDs: Start")
+    logger.info(f"Filter case IDs: Number of cases to consider {len(cases.caseid)}")
+    # The cases should have the Mean Blood Pressure track.
     cases_with_mbp = pd.merge(
         tracks_meta.query(f"tname == '{TRACK_NAME_MBP}'"),
         cases,
         on="caseid",
     )
 
-    filtered_unique_case_ids = (
-        cases_with_mbp[
-            (cases_with_mbp.age > AGE_CASE_THRESHOLD)
-            & (cases_with_mbp.caseend > CASEEND_CASE_THRESHOLD)
-            & (~cases_with_mbp.opname.str.contains(FORBIDDEN_OPNAME_CASE, case=False))
-            & (cases_with_mbp.emop == 0)
-        ]
-        .caseid.unique()
-        .tolist()
-    )
+    # The cases should met these requirements
+    filtered_unique_case_ids = cases_with_mbp[
+        (cases_with_mbp.age > AGE_CASE_THRESHOLD)
+        & (cases_with_mbp.caseend > CASEEND_CASE_THRESHOLD)
+        & (~cases_with_mbp.opname.str.contains(FORBIDDEN_OPNAME_CASE, case=False))
+        & (cases_with_mbp.emop == 0)
+    ].caseid.unique()
 
-    return filtered_unique_case_ids
+    # The cases should have the needed static data
+    potential_cases = cases[cases.caseid.isin(filtered_unique_case_ids)]
+    filtered_case_ids = potential_cases[
+        potential_cases[STATIC_DATA_NAMES + ["caseid"]].isna().sum("columns") == 0
+    ].caseid.tolist()
+
+    n_kept_cases = len(filtered_case_ids)
+    logger.info(f"Filter case IDs: Number of cases kept {n_kept_cases}")
+    logger.debug("Filter case IDs: End")
+    return filtered_case_ids
 
 
-def retrieve_tracks_raw_data(tracks_meta: pd.DataFrame) -> list[pd.DataFrame]:
+def retrieve_tracks_raw_data(tracks_meta: pd.DataFrame) -> pd.DataFrame:
     """
     Use the `hp_pred.data_retrieve_async` module to get new data.
 
@@ -171,47 +178,39 @@ def retrieve_tracks_raw_data(tracks_meta: pd.DataFrame) -> list[pd.DataFrame]:
     Returns:
         list[pd.DataFrame]: The tracks data for each case ID.
     """
+    logger.debug("Retrieve data from VitalDB API: Start")
+
     tracks_url_and_case_id = [
         (f"/{track.tid}", int(track.caseid))  # type: ignore
         for track in tracks_meta.itertuples(index=False)
     ]
 
-    logger.debug("Start retrieving data from VitalDB API")
+    logger.debug("Retrieve data from VitalDB API: Start async jobs")
     tracks_raw_data = asyncio.run(
         retrieve_tracks_raw_data_async(tracks_url_and_case_id)
     )
-    logger.debug("Done retrieving data from VitalDB API")
+    logger.debug("Retrieve data from VitalDB API: End async jobs")
 
-    logger.debug("Start gathering raw track data by case ID.")
-    case_id_to_track_raw_data_list: dict[int, list[pd.DataFrame]] = defaultdict(list)
-    for track_raw_data in tracks_raw_data:
-        # Retrieve the case_id and check that everyrow has the same in a single df.
-        case_id = track_raw_data.caseid.iloc[0]
-        assert (track_raw_data.caseid == case_id).all()
 
-        case_id_to_track_raw_data_list[case_id].append(track_raw_data)
-    logger.debug("Case ID coherence done.")
+    tracks_raw_data = pd.concat(tracks_raw_data)
+    tracks_raw_data.caseid = tracks_raw_data.caseid.astype("UInt16")
+    track_name_to_dtype = {
+        column: "Float32"
+        for column in tracks_raw_data.columns
+        if column not in ["caseid", "Time"]
+    }
+    tracks_raw_data = tracks_raw_data.astype(track_name_to_dtype)
+    logger.debug("Retrieve data from VitalDB API: Cast data types")
 
-    # tracks_raw_data_gathered = [
-    #     pd.concat(track_raw_data_list)
-    #     for track_raw_data_list in case_id_to_track_raw_data_list.values()
-    # ]
-    # TODO: Perform caseid format here with a two level index here and concat in a single df here
-    # FIXME: Too much track included, it is too much list of too big object.
-    exit()
-    tracks_raw_data_gathered: list[pd.DataFrame] = []
-    for track_raw_data_list in case_id_to_track_raw_data_list.values():
-        tracks_raw_data_gathered.append(pd.concat(track_raw_data_list))
-
-    logger.info("Done gathering raw track data by case ID.")
-    return tracks_raw_data_gathered
+    logger.debug("Retrieve data from VitalDB API: End")
+    return tracks_raw_data
 
 
 def format_track_raw_data_wav(track_raw_data: pd.DataFrame) -> pd.DataFrame:
     raise NotImplementedError
 
 
-def format_track_raw_data_num(track_raw_data: pd.DataFrame) -> pd.DataFrame:
+def format_track_raw_data_num(tracks_raw_data: pd.DataFrame) -> pd.DataFrame:
     """
     Format the track's raw data according to the Time column. The Time column is rounded
     and we group the different values with the same rounded Time value.
@@ -222,12 +221,25 @@ def format_track_raw_data_num(track_raw_data: pd.DataFrame) -> pd.DataFrame:
     Returns:
         pd.DataFrame: Track data with integer Time and fewer NaN.
     """
-    track_raw_data.Time = track_raw_data.Time.astype(int)
+    logger.debug("Data formatting: Enter NUM formatting")
+    # or use round() if we want a more accurate int Time, cannot perform direct downcast
+    tracks_raw_data.Time = tracks_raw_data.Time.transform(int).astype("UInt16")
+    logger.debug("Data formatting: Time is converted to pandas UInt16")
 
-    return track_raw_data.groupby("Time", as_index=False).first()
+    group_columns = ["caseid", "Time"]
+    aggregate_dict = {
+        column: "first"  # Force agg to get the first not NaN by ("caseid", "Time")
+        for column in tracks_raw_data  # Column is caseid, Time or track_name
+        if column not in group_columns  # Exclude case_id and Time
+    }
+    tracks_raw_data_grouped = tracks_raw_data.groupby(group_columns, as_index=False)
+    tracks = tracks_raw_data_grouped.agg(aggregate_dict)
+    logger.debug("Data formatting: One value of Time per case ID")
+
+    return tracks
 
 
-def format_time_track_raw_data(track_raw_data: pd.DataFrame) -> pd.DataFrame:
+def format_time_track_raw_data(tracks_raw_data: pd.DataFrame) -> pd.DataFrame:
     """
     Format the track's raw data. It chooses between the numeric and the wave formats.
 
@@ -237,73 +249,38 @@ def format_time_track_raw_data(track_raw_data: pd.DataFrame) -> pd.DataFrame:
     Returns:
         pd.DataFrame: Track data with integer Time and fewer NaN.
     """
-    track_raw_data = track_raw_data.astype(
-        {
-            column_name: "float32"
-            for column_name in track_raw_data.columns
-            if column_name != "Time"
-        }
+    logger.debug("Data formatting: Start")
+
+    formatted_tracks = (
+        format_track_raw_data_wav(tracks_raw_data)
+        if tracks_raw_data.Time.hasnans
+        else format_track_raw_data_num(tracks_raw_data)
     )
 
-    return (
-        format_track_raw_data_wav(track_raw_data)
-        if track_raw_data.Time.hasnans
-        else format_track_raw_data_num(track_raw_data)
-    )
+    logger.debug("Data formatting: End")
+    return formatted_tracks
 
 
-def post_process_track(
-    track: pd.DataFrame,
-    cases: pd.DataFrame,
-) -> pd.DataFrame | None:
-    """
-    Add some static features.
+def to_parquet(tracks: pd.DataFrame, output_folder: Path) -> None:
+    logger.debug("Parquet export: Start")
+    parquet_folder = output_folder / PARQUET_SUBFOLDER_NAME
+    n_export = 0
 
-    Args:
-        track (pd.DataFrame): Tracks corresponding to one case ID.
-        cases (pd.DataFrame): All cases information.
+    for case_id, group in tracks.groupby("caseid"):
+        parquet_file = parquet_folder / f"case-{case_id:04d}.parquet"
+        group.to_parquet(parquet_file, index=False)
+        n_export += 1
 
-    Returns:
-        pd.DataFrame | None: If the track data are not suitable, else return the track
-            data with its static data from cases.
-    """
-    # NOTE: caseid is unique in a track, asserted at build time.
-    case_id = track.caseid.iloc[0]
-    static_data = cases.query(f"caseid == {case_id}")[STATIC_DATA_NAMES + ["caseid"]]
-
-    if static_data.isna().any().any():
-        return None
-
-    return pd.merge(track, static_data, on="caseid")
-
-def set_dtypes(dataset: pd.DataFrame) -> pd.DataFrame:
-    # Set index
-    dataset = dataset.astype({"caseid": np.uint16, "Time": np.uint32})
-    dataset = dataset.set_index(["caseid", "Time"], drop=True)
-    print(dataset.columns)
-    # dataset.drop(columns="Unnamed: 0")
-
-    # Set columns
-    dataset = dataset.astype(NAME_TO_DTYPES)
-
-    return dataset
-
-
-def export_to_csv(dataset: pd.DataFrame, outfile: Path) -> None:
-    dataset_typed = set_dtypes(dataset)
-
-    dataset_typed.to_csv(outfile)
-
-
-def import_from_csv(outfile: Path) -> pd.DataFrame:
-    return set_dtypes(pd.read_csv(outfile))
-
+    logger.info(f"Parquet export: {n_export:,d} files exported")
+    logger.debug("Parquet export: End")
 
 
 def build_dataset(
     tracks_meta: pd.DataFrame,
     cases: pd.DataFrame,
-) -> pd.DataFrame:
+    group_size: int,
+    output_folder: Path,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Build the dataset, there are three steps:
     - Download the raw data from VitalDB API based on `tracks_meta`
@@ -319,71 +296,99 @@ def build_dataset(
         pd.DataFrame: The dataset with all the case IDs, their track values and static
             data.
     """
-    # HTTP requests handled with asynchronous calls
-    tracks_raw_data = retrieve_tracks_raw_data(tracks_meta)
+    logger.debug("Build dataset: Start")
+    case_ids = filter_case_ids(cases, tracks_meta)
 
-    # Handle timestamp
-    tracks_formatted = [
-        format_time_track_raw_data(track_raw_data) for track_raw_data in tracks_raw_data
+    track_names = get_track_names()
+    tracks_meta = tracks_meta[
+        tracks_meta.tname.isin(track_names) & tracks_meta.caseid.isin(case_ids)
     ]
+    logger.info(f"Buid dataset: Number of tracks to download {len(tracks_meta):,d}")
 
-    # Our post process, specific to select our tracks of interest
-    # tracks_post_processed = [post_process_track(track) for track in tracks_formatted]
-    # WARNING: Track info with meaning about the signal has not been, is it useful?
-    logger.debug("Start post process data, keep cases with enough data")
-    tracks_post_processed = [
-        track
-        for _track in tracks_formatted
-        if (track := post_process_track(_track, cases)) is not None
+    n_case_ids = len(case_ids)
+    case_ids_groups = [
+        case_ids[i : i + group_size] for i in range(0, n_case_ids, group_size)
     ]
-    logger.debug("Post post process is done.")
-
-    # On each case dataframe, count the number of tracks.
-    all_track_names = set(get_track_names())
-    n_tracks = sum(
-        len(all_track_names & set(track.columns)) for track in tracks_post_processed
-    )
     logger.info(
-        f"Dataset succesfully built with {len(tracks_post_processed):,d} cases "
-        f"({n_tracks:,d} tracks)."
+        f"Buid dataset: Group size {group_size}, "
+        f"Number of groups {len(case_ids_groups)}"
     )
 
-    return pd.concat(
-        [
-            track_post_processed
-            for track_post_processed in tracks_post_processed
-            if track_post_processed is not None
-        ]
-    )
+    for i, case_ids_group in enumerate(case_ids_groups):
+        logger.debug(f"Buid dataset: Group {i}")
+        tracks_meta_group = tracks_meta[tracks_meta.caseid.isin(case_ids_group)]
+
+        # HTTP requests handled with asynchronous calls
+        tracks_raw_data = retrieve_tracks_raw_data(tracks_meta_group)
+
+        # Handle timestamp, index
+        tracks = format_time_track_raw_data(tracks_raw_data)
+
+        # To parquet files
+        to_parquet(tracks, output_folder)
+
+    del tracks_meta, tracks
+    tracks = pd.read_parquet((output_folder / PARQUET_SUBFOLDER_NAME))
+    logger.debug("Build dataset: Load the whole dataset")
+
+    static_data = cases[STATIC_DATA_NAMES + ["caseid"]].astype(STATIC_NAME_TO_DTYPES)
+    logger.debug("Build dataset: Static data created")
+
+    logger.debug("Build dataset: End")
+    return tracks, static_data
+
+
+def export_dataframe(
+    dataframe: pd.DataFrame, filename: str, output_folder: Path
+) -> None:
+    logger.debug(f"Export {filename}: Start")
+
+    dtypes = dataframe.dtypes.apply(lambda x: x.name).to_dict()
+    dtypes_file = output_folder / f"{filename}_dtypes.json"
+    with open(dtypes_file, mode="w", encoding="utf-8") as file:
+        json.dump(dtypes, file)
+    logger.info(f"Export {filename}: {dtypes_file} exported")
+
+    data_file = output_folder / f"{filename}.csv"
+    dataframe.to_csv(data_file)
+    logger.info(f"Export {filename}: {data_file} exported")
+
+    logger.debug(f"Export {filename}: End")
+
+
+def import_dataframe(data_file_path: str, dtypes_file_path: str) -> pd.DataFrame:
+    data_file = Path(data_file_path)
+    dtypes_file = Path(dtypes_file_path)
+    assert data_file.exists(), f"{data_file} is not found."
+    assert dtypes_file.exists(), f"{dtypes_file} is not found."
+    assert data_file.suffix == ".csv", "Data file should be CSV file."
+    assert dtypes_file.suffix == ".json", "Data types file should be JSON file."
+
+    with open(dtypes_file, mode="r", encoding="utf-8") as file:
+        column_to_dtype = json.load(file)
+
+    return pd.read_csv(data_file, dtype=column_to_dtype)
 
 
 def main():
     # Get args and set logger
-    log_level_name, output_folder = parse()
+    log_level_name, output_folder, group_size = parse()
     if not output_folder.exists():
         output_folder.mkdir(parents=True)
     setup_logger(output_folder, log_level_name)
 
-    logger.debug("Start retrieving track meta data and cases CSV from VitalDB.")
+    logger.debug("Retrieve meta data and cases data from VitalDB: Start")
     tracks_meta = pd.read_csv(TRACKS_META_URL, dtype={"tname": "category"})
     cases = pd.read_csv(CASE_INFO_URL)
-    logger.debug("Done retrieving track meta data and cases CSV from VitalDB.")
+    logger.debug("Retrieve meta data and cases data from VitalDB: End")
 
-    case_ids = filter_case_ids(cases, tracks_meta)
-    logger.info(f"Number of cases to consider: {len(case_ids):,d}\n")
+    dataset, static_data = build_dataset(tracks_meta, cases, group_size, output_folder)
 
-    track_names = get_track_names()
-    targeted_tracks_meta = tracks_meta[
-        tracks_meta.tname.isin(track_names) & tracks_meta.caseid.isin(case_ids)
-    ]
-    logger.info(f"Number of tracks to download: {len(targeted_tracks_meta):,d}\n")
+    dataset_file = output_folder / f"{BASE_FILENAME_DATASET}.parquet"
+    dataset.to_parquet(dataset_file, index=False)
 
-    dataset = build_dataset(targeted_tracks_meta, cases)
-
-    exit()
-    dataset_file = output_folder / "data_async.csv"
-    export_to_csv(dataset, dataset_file)
-    logger.info(f"Dataset is saved in {dataset_file}.")
+    static_data_file = output_folder / f"{BASE_FILENAME_STATIC_DATA}.parquet"
+    static_data.to_parquet(static_data_file, index=False)
 
 
 if __name__ == "__main__":
