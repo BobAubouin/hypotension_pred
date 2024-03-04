@@ -21,10 +21,11 @@ CASE_INFO_URL = f"{VITAL_API_BASE_URL}/cases"
 # Filter constants
 TRACK_NAME_MBP = "Solar8000/ART_MBP"
 # Duration in seconds
-CASEEND_CASE_THRESHOLD = 3600
+CASEEND_CASE_THRESHOLD = 3600  # seconds
 FORBIDDEN_OPNAME_CASE = "transplant"
 PERCENT_MISSING_DATA_THRESHOLD = 0.2
-AGE_CASE_THRESHOLD = 18
+AGE_CASE_THRESHOLD = 18  # years
+BLOOD_LOSS_THRESHOLD = 400  # mL
 
 PARQUET_SUBFOLDER_NAME = "cases"
 BASE_FILENAME_DATASET = "cases_data"
@@ -152,6 +153,10 @@ def filter_case_ids(cases: pd.DataFrame, tracks_meta: pd.DataFrame) -> list[int]
         & (cases_with_mbp.caseend > CASEEND_CASE_THRESHOLD)
         & (~cases_with_mbp.opname.str.contains(FORBIDDEN_OPNAME_CASE, case=False))
         & (cases_with_mbp.emop == 0)
+        & (
+            (cases_with_mbp.intraop_ebl < BLOOD_LOSS_THRESHOLD)
+            | (cases_with_mbp.intraop_ebl.isna())
+        )
     ].caseid.unique()
 
     # The cases should have the needed static data
@@ -190,7 +195,6 @@ def retrieve_tracks_raw_data(tracks_meta: pd.DataFrame) -> pd.DataFrame:
     )
     logger.debug("Retrieve data from VitalDB API: End async jobs")
 
-
     tracks_raw_data = pd.concat(tracks_raw_data)
     tracks_raw_data.caseid = tracks_raw_data.caseid.astype("UInt16")
     track_name_to_dtype = {
@@ -221,8 +225,7 @@ def format_track_raw_data_num(tracks_raw_data: pd.DataFrame) -> pd.DataFrame:
         pd.DataFrame: Track data with integer Time and fewer NaN.
     """
     logger.debug("Data formatting: Enter NUM formatting")
-    # or use round() if we want a more accurate int Time, cannot perform direct downcast
-    tracks_raw_data.Time = tracks_raw_data.Time.transform(int).astype("UInt16")
+    tracks_raw_data.Time = tracks_raw_data.Time.round().astype("UInt16")
     logger.debug("Data formatting: Time is converted to pandas UInt16")
 
     group_columns = ["caseid", "Time"]
