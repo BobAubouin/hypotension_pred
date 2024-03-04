@@ -3,7 +3,7 @@ Use data-based approach to predict intra-operative hypotension.
 
 ## Installation
 
-Use a new virtual env and Python 3.10 (with pyenv) for maximal compatibility.
+Use a new virtual env and Python 3.11 (with pyenv) for maximal compatibility.
 
 ```bash
 git clone https://github.com/BobAubouin/hypotension_pred hp_pred
