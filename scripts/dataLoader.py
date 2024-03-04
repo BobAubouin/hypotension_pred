@@ -3,6 +3,8 @@ import numpy as np
 import concurrent.futures
 from tqdm import tqdm
 
+WINDOW_SIZE_PEAK = 500  # window size for the peak detection
+TRESHOLD_PEAK = 30  # threshold for the peak detection
 MIN_TIME_IOH = 60  # minimum time for the IOH to be considered as IOH (in seconds)
 MIN_VALUE_IOH = 65  # minimum value for the mean arterial pressure to be considered as IOH (in mmHg)
 MIN_MPB_SGEMENT = 40  # minimum acceptable value for the mean arterial pressure (in mmHg)
@@ -10,25 +12,72 @@ MAX_MPB_SGEMENT = 150  # maximum acceptable value for the mean arterial pressure
 MAX_DELTA_MPB_SGEMENT = 30  # maximum acceptable value for the mean arterial pressure variation (in mmHg/minutes)
 MAX_NAN_SGEMENT = 0.1  # maximum acceptable value for the nan in the segment (in %)
 NUMBER_CV_FOLD = 5  # number of cross-validation fold
-RECOVERY_TIME = 15*60  # recovery time after the IOH (in seconds)
+RECOVERY_TIME = 10*60  # recovery time after the IOH (in seconds)
 
 DEVICE_NAME_TO_SAMPLING_RATE = {
     "Solar8000": 2,
     "Primus": 7,
+    "BIS": 1
 }
-POSSIBLE_SIGNAL_NAME = ['mbp', 'sbp', 'dbp', 'hr', 'rr', 'spo2', 'etco2', 'mac', 'pp_ct']
+POSSIBLE_SIGNAL_NAME = ['mbp', 'sbp', 'dbp', 'hr', 'rr', 'spo2', 'etco2', 'mac', 'pp_ct', 'bis']
+
+
+def preprocess_bpdata(df_case: pd.DataFrame, sampling_time: int):
+    """ Preprocess the blood pressure data.
+
+    Remove beginning and end of the surgery (where the blood pressure is too low).And remove the peaks on the mean arterial pressure.
+
+    Parameters
+    ----------
+    df_case : pd.DataFrame
+        The dataframe containing the case data.
+    sampling_time : int
+        The sampling time in seconds.
+
+    Returns
+    -------
+    pd.DataFrame
+        The dataframe with the blood pressure data preprocessed.
+    """
+
+    # remove too low value (before the start of the measurement)
+    df_case.mbp.mask(df_case.mbp < MIN_MPB_SGEMENT, inplace=True)
+    # removing the nan values at the beginning and the ending
+    case_valid_mask = ~df_case.mbp.isna()
+    df_case = df_case[(np.cumsum(case_valid_mask) > 0) & (np.cumsum(case_valid_mask[::-1])[::-1] > 0)]
+
+    # remove peaks on the mean arterial pressure
+
+    rolling_mean_mbp = df_case.mbp.rolling(window=WINDOW_SIZE_PEAK//sampling_time, center=True, min_periods=10).mean()
+    rolling_mean_sbp = df_case.sbp.rolling(window=WINDOW_SIZE_PEAK//sampling_time, center=True, min_periods=10).mean()
+    rolling_mean_dbp = df_case.dbp.rolling(window=WINDOW_SIZE_PEAK//sampling_time, center=True, min_periods=10).mean()
+
+    # Identify peaks based on the difference from the rolling mean
+    mbp_peaks = df_case[(df_case.mbp-rolling_mean_mbp).abs() > TRESHOLD_PEAK]
+    df_case.loc[mbp_peaks.index, ['mbp']] = np.nan
+    sbp_peaks = df_case[(df_case.sbp-rolling_mean_sbp).abs() > TRESHOLD_PEAK*1.5]
+    df_case.loc[sbp_peaks.index, ['sbp']] = np.nan
+    dbp_peaks = df_case[(df_case.dbp - rolling_mean_dbp).abs() > TRESHOLD_PEAK]
+    df_case.loc[dbp_peaks.index, ['dbp']] = np.nan
+
+    return df_case
 
 
 def label_caseid(df_case: pd.DataFrame, sampling_time: int):
     """
     Labels the case based on the mean arterial blood pressure (mbp) values.
 
-    Args:
-        df_case (pd.DataFrame): The dataframe containing the case data.
-        sampling_time (int): The sampling time in minutes.
+    Parameters:
+    -----------
+    df_case : pd.DataFrame 
+        The dataframe containing the case data.
+    sampling_time : int
+        The sampling time in seconds.
 
-    Returns:
-        pd.DataFrame: The dataframe with the label column added.
+    Returns
+    -------
+    pd.DataFrame: 
+        The dataframe with the label column added.
     """
     # create the label for the case
     label = (np.convolve((df_case['mbp'] < MIN_VALUE_IOH).astype(int), np.ones(
@@ -94,6 +143,8 @@ def validate_segment(
             device_rate = DEVICE_NAME_TO_SAMPLING_RATE['Primus']
         elif signal == 'pp_ct':
             device_rate = 1
+        elif signal == 'bis':
+            device_rate = DEVICE_NAME_TO_SAMPLING_RATE['BIS']
         else:
             device_rate = DEVICE_NAME_TO_SAMPLING_RATE['Solar8000']
 
@@ -119,8 +170,7 @@ def process_cases(
         half_times: list[int],
         signal_name: list[str],
         static_data: list[str],
-        caseid_list: list[list[str]],
-        pbar: tqdm = None):
+        caseid_list: list[list[str]]):
     """process_cases function process the cases to be used in the model.
 
     Parameters
@@ -145,8 +195,6 @@ def process_cases(
         List of static data to consider.
     caseid_list : list[list[str]]
         List of caseid to consider for cross validation.
-    pbar : tqdm
-        The progress bar to update.
 
     Returns
     -------
@@ -157,26 +205,20 @@ def process_cases(
     number_of_raw_segment = 0
     number_of_selected_segement = 0
     # process mean arterial value data
-    # remove too low value (before the start of the measurement)
-    df_case.mbp.mask(df_case.mbp < MIN_MPB_SGEMENT, inplace=True)
-    # removing the nan values at the beginning and the ending
-    case_valid_mask = ~df_case.mbp.isna()
-    df_case = df_case[(np.cumsum(case_valid_mask) > 0) & (np.cumsum(case_valid_mask[::-1])[::-1] > 0)]
+    df_case = preprocess_bpdata(df_case, sampling_time)
 
     # create label
     df_case = label_caseid(df_case, sampling_time)
 
     # create time series
-    time = np.arange(df_case.shape[0])*sampling_time
-    df_case.insert(0, 'time', time)
 
     # create the segments
     segment_length = (observation_windows + leading_time + prediction_windows)//sampling_time
     segment_shift = window_shift // sampling_time
 
-    for time_start in range(0, df_case.shape[0] - segment_length, segment_shift):
-        segment = df_case.iloc[time_start:time_start + segment_length]
-        previous_segment = df_case.iloc[max(0, time_start - RECOVERY_TIME//sampling_time):time_start]
+    for id_start in range(0, df_case.shape[0] - segment_length, segment_shift):
+        segment = df_case.iloc[id_start:id_start + segment_length]
+        previous_segment = df_case.iloc[max(0, id_start - RECOVERY_TIME//sampling_time):id_start]
         number_of_raw_segment += 1
         if not validate_segment(segment, previous_segment, sampling_time, observation_windows, leading_time):
             continue
@@ -189,11 +231,13 @@ def process_cases(
         for half_time in half_times:
             for signal in signal_name:
                 segment_data[f'{signal}_ema_{half_time}'] = [segment_obs[signal].ewm(
-                    halflife=half_time).mean().iloc[-1]]
+                    halflife=half_time//sampling_time).mean().iloc[-1]]
                 segment_data[f'{signal}_var_{half_time}'] = [segment_obs[signal].ewm(
-                    halflife=half_time).std().iloc[-1]]
+                    halflife=half_time//sampling_time).std().iloc[-1]]
         # add the label of the segment
         segment_data['label'] = [(segment_pred.label.sum() > 0).astype(int)]
+        # add time of the segment
+        segment_data['time'] = [segment_obs.Time.iloc[-1]*sampling_time]
 
         # add the segment to the data
         formattedData_case = pd.concat([formattedData_case, segment_data])
@@ -209,8 +253,7 @@ def process_cases(
         if df_case['caseid'].iloc[0] in group:
             formattedData_case['cv_group'] = i
             break
-    if pbar is not None:
-        pbar.update(1)
+
     return formattedData_case, number_of_raw_segment, number_of_selected_segement
 
 
@@ -222,7 +265,8 @@ def dataLoaderParallel(half_times: list[int] = [10, 60, 5*60],
                        observation_windows: int = 5*60,
                        sampling_time: int = 2,
                        window_shift: int = 30,
-                       max_number_of_case: int = 5000
+                       max_number_of_case: int = 5000,
+                       rawData: pd.DataFrame = None
                        ):
     """dataLoader function loads data genrated by dataGen function and process the data to be used in the model.
 
@@ -254,9 +298,10 @@ def dataLoaderParallel(half_times: list[int] = [10, 60, 5*60],
         if signal not in POSSIBLE_SIGNAL_NAME:
             raise ValueError(f'{signal} is not a possible signal name')
 
-    # Load the data
-    print('Loading raw data...')
-    rawData = pd.read_csv(f'data/data_async.csv')
+    if rawData is None:
+        # Load the data
+        print('Loading raw data...')
+        rawData = pd.read_csv(f'data/data_async.csv')
     # rename the raw to have simpler names
     rawData.rename(columns={'Solar8000/ART_MBP': 'mbp',
                             'Solar8000/ART_SBP': 'sbp',
@@ -266,7 +311,8 @@ def dataLoaderParallel(half_times: list[int] = [10, 60, 5*60],
                             'Solar8000/PLETH_SPO2': 'spo2',
                             'Solar8000/ETCO2': 'etco2',
                             'Orchestra/PPF20_CT': 'pp_ct',
-                            'Primus/MAC': 'mac'}, inplace=True)
+                            'Primus/MAC': 'mac',
+                            'BIS/BIS': 'bis'}, inplace=True)
 
     # fill the nan value by 0 in the propo target
     rawData['pp_ct'].fillna(0, inplace=True)
@@ -316,7 +362,7 @@ def dataLoaderParallel(half_times: list[int] = [10, 60, 5*60],
 if __name__ == "__main__":
     dataframe = dataLoaderParallel(
         half_times=[10],
-        max_number_of_case=5000
+        max_number_of_case=3
     )
 
     print(f"Number of ioh: {dataframe.label.sum()}")
