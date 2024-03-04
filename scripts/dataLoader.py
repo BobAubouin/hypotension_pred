@@ -1,7 +1,9 @@
 import pandas as pd
 import numpy as np
-import concurrent.futures
+import multiprocessing as mp
+from functools import partial
 from tqdm import tqdm
+import concurrent.futures
 
 WINDOW_SIZE_PEAK = 500  # window size for the peak detection
 TRESHOLD_PEAK = 30  # threshold for the peak detection
@@ -9,8 +11,7 @@ MIN_TIME_IOH = 60  # minimum time for the IOH to be considered as IOH (in second
 MIN_VALUE_IOH = 65  # minimum value for the mean arterial pressure to be considered as IOH (in mmHg)
 MIN_MPB_SGEMENT = 40  # minimum acceptable value for the mean arterial pressure (in mmHg)
 MAX_MPB_SGEMENT = 150  # maximum acceptable value for the mean arterial pressure (in mmHg)
-MAX_DELTA_MPB_SGEMENT = 30  # maximum acceptable value for the mean arterial pressure variation (in mmHg/minutes)
-MAX_NAN_SGEMENT = 0.1  # maximum acceptable value for the nan in the segment (in %)
+MAX_NAN_SGEMENT = 0.2  # maximum acceptable value for the nan in the segment (in %)
 NUMBER_CV_FOLD = 5  # number of cross-validation fold
 RECOVERY_TIME = 10*60  # recovery time after the IOH (in seconds)
 
@@ -19,7 +20,7 @@ DEVICE_NAME_TO_SAMPLING_RATE = {
     "Primus": 7,
     "BIS": 1
 }
-POSSIBLE_SIGNAL_NAME = ['mbp', 'sbp', 'dbp', 'hr', 'rr', 'spo2', 'etco2', 'mac', 'pp_ct', 'bis']
+POSSIBLE_SIGNAL_NAME = ['mbp', 'sbp', 'dbp', 'hr', 'rr', 'spo2', 'etco2', 'mac', 'pp_ct']  # , 'bis'
 
 
 def preprocess_bpdata(df_case: pd.DataFrame, sampling_time: int):
@@ -44,7 +45,7 @@ def preprocess_bpdata(df_case: pd.DataFrame, sampling_time: int):
     df_case.mbp.mask(df_case.mbp < MIN_MPB_SGEMENT, inplace=True)
     # removing the nan values at the beginning and the ending
     case_valid_mask = ~df_case.mbp.isna()
-    df_case = df_case[(np.cumsum(case_valid_mask) > 0) & (np.cumsum(case_valid_mask[::-1])[::-1] > 0)]
+    df_case = df_case[(np.cumsum(case_valid_mask) > 0) & (np.cumsum(case_valid_mask[::-1])[::-1] > 0)].copy()
 
     # remove peaks on the mean arterial pressure
 
@@ -53,13 +54,9 @@ def preprocess_bpdata(df_case: pd.DataFrame, sampling_time: int):
     rolling_mean_dbp = df_case.dbp.rolling(window=WINDOW_SIZE_PEAK//sampling_time, center=True, min_periods=10).mean()
 
     # Identify peaks based on the difference from the rolling mean
-    mbp_peaks = df_case[(df_case.mbp-rolling_mean_mbp).abs() > TRESHOLD_PEAK]
-    df_case.loc[mbp_peaks.index, ['mbp']] = np.nan
-    sbp_peaks = df_case[(df_case.sbp-rolling_mean_sbp).abs() > TRESHOLD_PEAK*1.5]
-    df_case.loc[sbp_peaks.index, ['sbp']] = np.nan
-    dbp_peaks = df_case[(df_case.dbp - rolling_mean_dbp).abs() > TRESHOLD_PEAK]
-    df_case.loc[dbp_peaks.index, ['dbp']] = np.nan
-
+    df_case.mbp.mask((df_case.mbp-rolling_mean_mbp).abs() > TRESHOLD_PEAK)
+    df_case.sbp.mask((df_case.sbp-rolling_mean_sbp).abs() > TRESHOLD_PEAK*1.5)
+    df_case.dbp.mask((df_case.dbp-rolling_mean_dbp).abs() > TRESHOLD_PEAK)
     return df_case
 
 
@@ -80,12 +77,16 @@ def label_caseid(df_case: pd.DataFrame, sampling_time: int):
         The dataframe with the label column added.
     """
     # create the label for the case
-    label = (np.convolve((df_case['mbp'] < MIN_VALUE_IOH).astype(int), np.ones(
-        MIN_TIME_IOH//sampling_time), mode='valid') == MIN_TIME_IOH//sampling_time).astype(int)
-    # complete the label to have the same length as the data
-    label = np.concatenate([np.zeros(df_case.shape[0] - label.shape[0]), label])
+    label = df_case.mbp.rolling(MIN_TIME_IOH//sampling_time,
+                                min_periods=1).apply(lambda x: (x < MIN_VALUE_IOH).loc[~np.isnan(x)].all())
+    label.fillna(0, inplace=True)
+    for i in range(1, MIN_TIME_IOH//sampling_time):
+        label = label + label.shift(-1, fill_value=0)
+    label = label.astype(bool).astype(int)
+
     # add label to the data
-    df_case.insert(0, 'label', label)
+    df_case.insert(0, 'label', label.astype(int))
+
     return df_case
 
 
@@ -99,7 +100,6 @@ def validate_segment(
 
     The conditions to validate the segment are:
     - The mean arterial pressure (mbp) is between 40 and 150 mmHg.
-    - The variation of the mean arterial pressure (mbp) is less than 30 mmHg/minutes.
     - The label is not in the observation window not in the recovery time.
     - The nan values are less than 10% of the segment.
 
@@ -125,9 +125,6 @@ def validate_segment(
         return False
     # test any map>150mmHg
     if (segment.mbp > MAX_MPB_SGEMENT).any():
-        return False
-    # test any delta MAP > 30mmHg/minutes
-    if (segment.mbp.diff().rolling(window=60//sampling_time).mean().max()) > MAX_DELTA_MPB_SGEMENT:
         return False
     # test any label in the observation window
     if segment.label[:(observation_windows+leading_time)//sampling_time].any():
@@ -312,10 +309,13 @@ def dataLoaderParallel(half_times: list[int] = [10, 60, 5*60],
                             'Solar8000/ETCO2': 'etco2',
                             'Orchestra/PPF20_CT': 'pp_ct',
                             'Primus/MAC': 'mac',
-                            'BIS/BIS': 'bis'}, inplace=True)
+                            }, inplace=True)  # 'BIS/BIS': 'bis'
 
     # fill the nan value by 0 in the propo target
     rawData['pp_ct'].fillna(0, inplace=True)
+
+    # replace 'M' by 1 and 'F' by 0 in sex column
+    rawData['sex'] = (rawData.sex == 'M').astype(int)
 
     formattedData = pd.DataFrame()
 
@@ -327,7 +327,6 @@ def dataLoaderParallel(half_times: list[int] = [10, 60, 5*60],
     np.random.seed(0)
     np.random.shuffle(caseid_list_raw)
     caseid_list = np.array_split(caseid_list_raw, NUMBER_CV_FOLD)
-
     pbar = tqdm(total=min(max_number_of_case, len(rawData['caseid'].unique())), desc='Processing caseid')
 
     rawData = rawData[rawData['caseid'].isin(rawData['caseid'].unique()[:max_number_of_case])]
@@ -354,6 +353,29 @@ def dataLoaderParallel(half_times: list[int] = [10, 60, 5*60],
             pbar.update(1)
 
     pbar.close()
+    # rawData = rawData[rawData['caseid'].isin(rawData['caseid'].unique()[:max_number_of_case])]
+
+    # process_cases_partial = partial(process_cases,
+    #                                 sampling_time=sampling_time,
+    #                                 observation_windows=observation_windows,
+    #                                 leading_time=leading_time,
+    #                                 prediction_windows=prediction_windows,
+    #                                 window_shift=window_shift,
+    #                                 half_times=half_times,
+    #                                 signal_name=signal_name,
+    #                                 static_data=static_data,
+    #                                 caseid_list=caseid_list
+    #                                 )
+
+    # with mp.Pool(mp.cpu_count()) as pool:
+    #     results = list(tqdm(pool.map(process_cases_partial, [df_case for _, df_case in rawData.groupby(
+    #         'caseid')]), total=len(rawData['caseid'].unique()), desc='Processing cases'))
+
+    # for formattedData_case, number_of_raw_segment_case, number_of_selected_segement_case in results:
+    #     formattedData = pd.concat([formattedData, formattedData_case])
+    #     number_of_raw_segment += number_of_raw_segment_case
+    #     number_of_selected_segement += number_of_selected_segement_case
+
     print(f'Number of raw segment: {number_of_raw_segment}')
     print(f'Number of selected segment: {number_of_selected_segement}')
     return formattedData
@@ -366,4 +388,4 @@ if __name__ == "__main__":
     )
 
     print(f"Number of ioh: {dataframe.label.sum()}")
-    dataframe.to_csv('data/data_baseline.csv', index=False)
+    # dataframe.to_csv('data/data_baseline.csv', index=False)

@@ -18,6 +18,11 @@
     \addplot [forget plot, stack plots=y,draw=none] table [x={#3}, y expr=-(\thisrow{#4}+2*\thisrow{#5}), col sep=comma] {#2};
 }
 
+\readdef{../data/baseline_roc.csv}\mybaseline
+\readarray*\mybaseline\myarraybaseline[-,\ncols]
+
+\readdef{../data/xgboost_roc.csv}\myxgboost
+\readarray*\myxgboost\myarrayxgboost[-,\ncols]
 
 \begin{tikzpicture}
 
@@ -56,8 +61,8 @@ ytick style={color=black}
 \addplot [semithick, blue] table[x=fpr, y=tpr, col sep=comma] {../data/baseline_roc.csv};
 \addplot [semithick, orange] table[x=fpr, y=tpr, col sep=comma] {../data/xgboost_roc.csv};
 
-\addlegendentry{baseline$(AUC = 0.67 \pm 0.04)$}
-\addlegendentry{model $(AUC = 0.75 \pm 0.01)$}
+\addlegendentry{baseline}
+\addlegendentry{proposed model}
 \addplot [semithick, black, dashed, forget plot]
 table {%
 0 0

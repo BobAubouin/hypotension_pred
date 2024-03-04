@@ -12,6 +12,8 @@
 \usepackage{tikz}
 \usepackage{pgfplots}
 \pgfplotsset{compat=1.18}
+\usepackage{readarray}
+\readarraysepchar{,}
 
 \newtheorem*{remark}{Remark}
 
@@ -38,7 +40,10 @@ Recently, some research has been focused on trying to predict hypotension events
 
 \section{Feature selection}
 
+To select the features that are used to predict hypotension, the signals related to blood presure where first considered (mean, systolic, and diastolic blood pressure). Then, the other signals available in the database were considered, heart rate was added as it is obviously related to blood pressure. Then, the respiratory rate, oxygen saturation and the end tidal CO2 were added to represent the respiratory function of the patient. Finally, the hypnotic drug where added as it is known to cause hypotension, we considered the MAC value and the propofol target. We do not consider the raw signals of arterial blood pressure and heart rate as this is a preliminary work. Nevertheless, the use of features extracted from those signals could be of great interest. \medskip
 
+For the static features, the age, the BMI, the ASA, and the hypertension status of the patient were considered. Moreover, the preoperative
+creatinine concentration in the blood was added as it is known to be related to the risk of hypotension \cite{owensArterialHypotensionPrevalence2000a}. Other feature such as smoking and alcoholic habits could be of great interest but where not available in the dataset. \medskip
 \begin{table}
 \small
 \begin{center}
@@ -171,6 +176,7 @@ In this work the metric used is the Aera Under the Receiver operating characteri
 
 A fair baseline for the prediction of hypotension have been recently published in \cite{jacquet-lagrezePredictionIntraoperativeHypotension2022}. In this article they demonstrate that both linear extrapolation of MAP value and last value of MAP are good baseline for the prediction of hypotension. In this work, we used the last value of MAP as a baseline, as it is simplest to implement. \medskip
 
+In fact after, testing on the dataset, it appears that the last value of the Diastolic Blood Pressure (DBP) is a better baseline than the last value of the MAP. As the DBP value is also available to the care team, it can also be condidered as a baseline. \medskip
 
 \section{Proposed model}
 
@@ -186,12 +192,67 @@ The hyperparameters of the model are tuned using a grid search on the validation
     \item The minimum child weight
 \end{itemize}
 
-\begin{figure}
+\begin{figure}[h]
     \centering
     \input{figures/roc_curve.tex}
     \caption{ROC curve of the model (AUC = mean $\pm$ std).}
     \label{fig:roc}
 \end{figure}
+
+The ROC curve of the model is shown in Fig.~\ref{fig:roc}, statistics of the given model compared to the baseline are given in Table~\ref{tab:result}.
+
+\begin{table}
+    \centering
+    \scriptsize
+    \input{figures/result.tex}
+    \caption{Performance of the baseline and the XGBoost model. The values are presented as mean [95\% CI]}
+    \label{tab:result}
+\end{table}
+
+\section{Explainability}
+
+To better understand the prediction of the model, the SHapley Additive exPlanations (SHAP) \cite{lundbergExplainableMachinelearningPredictions2018} are used. This method allows to explain the prediction of the model by attributing the contribution of each feature to the final prediction. Results for our model are shown in Fig.~\ref{fig:shap}.
+
+% \begin{figure}
+%     \centering
+%     \includegraphics[width= 0.8\textwidth]{figures/shap_xgboost.pdf}
+%     \caption{SHAP values of the model.}
+%     \label{fig:shap}
+% \end{figure}
+
+\section{Statistical significance}
+
+In this section we will consider the statistical significance of the results of the model against the baseline. Let's consider the nulle hypothesis:
+
+\begin{equation}
+    H_0: AUC_{model} = AUC_{baseline}
+\end{equation}
+
+Firs the $Z$ score must be computed:
+
+\begin{equation}
+    Z = \frac{AUC_{model} - AUC_{baseline}}{SE(AUC_{model} - AUC_{baseline})}
+\end{equation}
+
+where:
+
+\begin{equation}
+    SE(AUC_{model} - AUC_{baseline}) = \sqrt{VAR(AUC_{model}) + VAR(AUC_{baseline})}
+\end{equation}
+
+Assuming that the AUC are normally distributed and independent (Otherwhise the $Z$ score must be computed using the Welch-Satterthwaite equation). In our case the $Z$ score is 2.5. \medskip
+
+The $p$-value can be computed using the $Z$ score. The $p$-value is the probability of observing a value of the test statistic as extreme as the one observed, assuming that the null hypothesis is true. The $p$-value is then compared to the significance level $\alpha$ (usually 0.05) to decide if the null hypothesis is rejected or not. \medskip
+
+The $p$-value can be computed using the following formula:
+
+\begin{equation}
+    p = 2 \times (1 - \Phi(|Z|))
+\end{equation}
+
+where $\Phi$ is the cumulative distribution function of the standard normal distribution. We optain a p-value = 0.0001.\medskip
+
+
 
 \bibliographystyle{ieeetr}
 \bibliography{bibli}
