@@ -160,6 +160,7 @@ def validate_segment(
 
 
 def process_cases(
+
         df_case: pd.DataFrame,
         sampling_time: int,
         observation_windows: int,
@@ -225,11 +226,9 @@ def process_cases(
             continue
         number_of_selected_segement += 1
 
-        segment_obs = segment.iloc[:observation_windows//sampling_time]
-        segment_pred = segment.iloc[(observation_windows + leading_time)//sampling_time:]
-
-        # create the time series features
         segment_data = pd.DataFrame()
+        segment_obs = segment.iloc[:observation_windows//sampling_time]
+        # create the time series features
         for half_time in half_times:
             for signal in signal_name:
                 segment_data[f'{signal}_ema_{half_time}'] = [segment_obs[signal].ewm(
@@ -238,7 +237,9 @@ def process_cases(
                     halflife=half_time//sampling_time).std().iloc[-1]]
 
         # add the label of the segment
+        segment_pred = segment.iloc[(observation_windows + leading_time)//sampling_time:]
         segment_data['label'] = [(segment_pred.label.sum() > 0).astype(int)]
+
         # add time of the segment
         segment_data['time'] = [segment_obs.Time.iloc[-1]*sampling_time]
 
