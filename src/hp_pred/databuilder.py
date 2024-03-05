@@ -1,5 +1,6 @@
 from functools import reduce
 from pathlib import Path
+from cProfile import Profile
 
 import numpy as np
 from tqdm import tqdm
@@ -129,7 +130,6 @@ class DataBuilder:
         raw_data.sort_index(inplace=True)
         static_data.sort_index(inplace=True)
 
-
         return raw_data, static_data
 
     def _preprocess_sampling(self, case_data: pd.DataFrame) -> pd.DataFrame:
@@ -228,19 +228,19 @@ class DataBuilder:
     def _create_segment_features(
         self, segment_observation: pd.DataFrame
     ) -> pd.DataFrame:
-        segment_features = pd.DataFrame()
+        column_to_features: dict[str, tuple[float]] = {}
 
         for half_time in self.half_times:
+            str_halt_time = str(half_time)
             for signal_name in self.signal_features_names:
-                ema_name = f"{signal_name}_ema_{half_time}"
-                ema = segment_observation.ewm(halflife=half_time).mean().iloc[-1]
-                segment_features[ema_name] = ema
+                ewm = segment_observation[signal_name].ewm(halflife=half_time)
+                ema_column = signal_name + "_ema_" + str_halt_time
+                std_column = signal_name + "_std_" + str_halt_time
 
-                std_name = f"{signal_name}_var_{half_time}"
-                std = segment_observation.ewm(halflife=half_time).std().iloc[-1]
-                segment_features[std_name] = std
+                column_to_features[ema_column] = ewm.mean().iloc[-1],
+                column_to_features[std_column] = ewm.std().iloc[-1],
 
-        return segment_features.astype("Float32")
+        return pd.DataFrame(column_to_features, dtype="Float32")
 
     def _create_segments(self, case_data: pd.DataFrame, case_id: int) -> None:
         indexes_range = range(
@@ -266,17 +266,16 @@ class DataBuilder:
             segment_predictions = segment.iloc[
                 (self.observation_window_length + self.leading_time)
             ]
-            segment_features["label"] = (segment_predictions.label.sum() > 0).astype(int)
+            segment_features["label"] = (
+                (segment_predictions.label.sum() > 0).astype(int)
+            ,)
 
-            segment_features["time"] = segment_predictions.index[-1]
+            segment_features["time"] = segment_predictions.index[-1],
 
             parquet_file = (
                 self.dataset_output_folder / f"case{case_id}s{segment_id}.parquet"
             )
-            try:
-                segment_features.to_parquet(parquet_file, index=False)
-            except:
-                breakpoint()
+            segment_features.to_parquet(parquet_file, index=False)
 
     def build(self) -> None:
         # TODO: Build split
