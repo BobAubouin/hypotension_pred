@@ -120,17 +120,19 @@ class DataBuilder:
         raw_data = raw_data[self.signal_features_names + ["caseid", "Time"]]
 
         static_data = pd.read_parquet(self.static_data_file)[self.static_data_names]
-
-        raw_data.sort_values(["caseid", "Time"], inplace=True)
-        static_data.sort_values(["caseid"], inplace=True)
         assert len(raw_data.caseid.unique()) == len(static_data.caseid.unique())
+
+        raw_data.Time = pd.to_timedelta(raw_data.Time, unit="s")
+        raw_data.set_index(["caseid", "Time"], inplace=True)
+        static_data.set_index(["caseid"])
+
+        raw_data.sort_index(inplace=True)
+        static_data.sort_index(inplace=True)
+
 
         return raw_data, static_data
 
     def _preprocess_sampling(self, case_data: pd.DataFrame) -> pd.DataFrame:
-        case_data.set_index("Time", inplace=True)
-        case_data.index = pd.to_timedelta(case_data.index, unit="S")
-
         return case_data.resample(f"{self.sampling_time}S").first()
 
     def _preprocess_peak(self, case_data: pd.DataFrame) -> pd.DataFrame:
@@ -281,7 +283,9 @@ class DataBuilder:
         # FIXME: Very slow
         raw_data, static_data = self._import_raw()
 
-        for caseid, case_data in tqdm(raw_data.groupby("caseid")):
+        bar_iterable = tqdm(raw_data.groupby(level="caseid", as_index=False))
+        for caseid, case_data in bar_iterable:
+            case_data = case_data.reset_index("caseid", drop=True)
             case_data = self._preprocess(case_data)
 
             label = self._labelize(case_data)
