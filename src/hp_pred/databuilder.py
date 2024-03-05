@@ -1,6 +1,7 @@
+import re
+from collections import Counter
 from functools import reduce
 from pathlib import Path
-from cProfile import Profile
 
 import numpy as np
 from tqdm import tqdm
@@ -277,6 +278,51 @@ class DataBuilder:
             )
             segment_features.to_parquet(parquet_file, index=False)
 
+    def _create_meta(self, static_data: pd.DataFrame) -> None:
+        case_id_re = re.compile(r"\d+")
+
+        case_ids = [
+            int(case_id_re.findall(file.stem)[0])  # Extract case_id from filenames
+            for file in self.dataset_output_folder.iterdir()
+            if file.suffix == ".parquet"
+        ]
+
+        # Keep case ids with segment only
+        static_data = static_data[static_data.caseid.isin(case_ids)]
+
+        count_segment_by_case_ids = Counter(case_ids)
+        caseid_and_n_samples_sorted: list[tuple[int, int]] = sorted(
+            count_segment_by_case_ids.items(),
+            key=lambda x: x[1],  # key 1 is n_samples
+            reverse=True
+        )
+
+        train_set: dict[int, int] = {}
+        test_set: dict[int, int] = {}
+        train_samples = 0
+        test_samples = 0
+
+        total_samples = sum(count_segment_by_case_ids.values())
+
+        for case_id, n_samples in caseid_and_n_samples_sorted:
+            if train_samples / total_samples <= 0.7:
+                train_set[case_id] = n_samples
+                train_samples += n_samples
+            else:
+                test_set[case_id] = n_samples
+                test_samples += n_samples
+
+        percent_train_samples = train_samples / total_samples
+        percent_test_samples = test_samples / total_samples
+        # TODO: THIS CODE HAS NOT BEEN RAN
+        # TODO: Set split column in static_data and write to parquet file in dataset_folder
+        # TODO: HARD CODED FOR 70%
+        print(
+            f"There are {train_samples} ({percent_train_samples:%}) train samples, "
+            f"and {test_samples} {percent_test_samples:%} test samples."
+        )
+
+
     def build(self) -> None:
         # TODO: Build split
         # FIXME: Very slow
@@ -291,6 +337,8 @@ class DataBuilder:
             case_data["label"] = label
 
             self._create_segments(case_data, caseid)  # type: ignore
+
+        self._create_meta(static_data)
 
         print(
             f"All segments considered: {self.n_raw_segments}\n"
