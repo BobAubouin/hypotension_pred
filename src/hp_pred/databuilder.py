@@ -252,7 +252,7 @@ class DataBuilder:
         for i_time_start in indexes_range:
             self.n_raw_segments += 1
 
-            segment = case_data.iloc[i_time_start : i_time_start + self.segment_length]
+            segment = case_data.iloc[i_time_start: i_time_start + self.segment_length]
 
             start_time_previous_segment = max(0, i_time_start - RECOVERY_TIME)
             previous_segment = case_data.iloc[start_time_previous_segment:i_time_start]
@@ -265,13 +265,18 @@ class DataBuilder:
             segment_features = self._create_segment_features(segment_observations)
 
             segment_predictions = segment.iloc[
-                (self.observation_window_length + self.leading_time)
+                (self.observation_window_length + self.leading_time):
             ]
             segment_features["label"] = (
-                (segment_predictions.label.sum() > 0).astype(int)
-            ,)
+                (segment_predictions.label.sum() > 0).astype(int),)
 
-            segment_features["time"] = segment_predictions.index[-1],
+            segment_features["time"] = segment_predictions.index[-1]
+
+            segment_features["time_before_IOH"] = (
+                segment_predictions.label.idxmax() - segment_observations.index[-1]
+            ).seconds
+
+            segment_features["caseid"] = case_id
 
             parquet_file = (
                 self.dataset_output_folder / f"case{case_id}s{segment_id}.parquet"
@@ -322,13 +327,12 @@ class DataBuilder:
             f"and {test_samples} {percent_test_samples:%} test samples."
         )
 
-
     def build(self) -> None:
         # TODO: Build split
         # FIXME: Very slow
         raw_data, static_data = self._import_raw()
 
-        bar_iterable = tqdm(raw_data.groupby(level="caseid", as_index=False))
+        bar_iterable = tqdm(raw_data.groupby(level="caseid", as_index=False), desc="Building segments")
         for caseid, case_data in bar_iterable:
             case_data = case_data.reset_index("caseid", drop=True)
             case_data = self._preprocess(case_data)
