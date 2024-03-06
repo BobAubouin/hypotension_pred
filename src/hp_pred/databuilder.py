@@ -1,11 +1,15 @@
 import re
 from collections import Counter
-from functools import reduce
+from functools import reduce, partial
 from pathlib import Path
+import multiprocessing as mp
+
 
 import numpy as np
-from tqdm import tqdm
+from tqdm.contrib.concurrent import process_map
 import pandas as pd
+import dask.dataframe as dd
+
 
 RAW_FEATURES_NAME_TO_NEW_NAME = {
     "Solar8000/ART_MBP": "mbp",
@@ -36,6 +40,8 @@ MAX_MBP_SEGMENT = (
 MAX_NAN_SEGMENT = 0.2  # maximum acceptable value for the nan in the segment (in %)
 NUMBER_CV_FOLD = 5  # number of cross-validation fold
 RECOVERY_TIME = 10 * 60  # recovery time after the IOH (in seconds)
+TRAIN_RATIO = 0.7
+CASE_PATH = "cases"
 
 
 def detect_ioh(window: pd.Series) -> bool:
@@ -248,7 +254,7 @@ class DataBuilder:
             0, len(case_data) - self.segment_length, self.segment_shift
         )
         segment_id = 0
-
+        list_of_segments = []
         for i_time_start in indexes_range:
             self.n_raw_segments += 1
 
@@ -278,10 +284,16 @@ class DataBuilder:
 
             segment_features["caseid"] = case_id
 
-            parquet_file = (
-                self.dataset_output_folder / f"case{case_id}s{segment_id}.parquet"
-            )
-            segment_features.to_parquet(parquet_file, index=False)
+            list_of_segments.append(segment_features)
+
+        if len(list_of_segments) == 0:
+            return
+        case_df = pd.concat(list_of_segments, axis=0, ignore_index=True)
+
+        parquet_file = (
+            self.dataset_output_folder / f"{CASE_PATH}/case{case_id}.parquet"
+        )
+        case_df.to_parquet(parquet_file, index=False)
 
     def _create_meta(self, static_data: pd.DataFrame) -> None:
         case_id_re = re.compile(r"\d+")
@@ -310,7 +322,7 @@ class DataBuilder:
         total_samples = sum(count_segment_by_case_ids.values())
 
         for case_id, n_samples in caseid_and_n_samples_sorted:
-            if train_samples / total_samples <= 0.7:
+            if train_samples / total_samples <= TRAIN_RATIO:
                 train_set[case_id] = n_samples
                 train_samples += n_samples
             else:
@@ -319,28 +331,47 @@ class DataBuilder:
 
         percent_train_samples = train_samples / total_samples
         percent_test_samples = test_samples / total_samples
-        # TODO: THIS CODE HAS NOT BEEN RAN
-        # TODO: Set split column in static_data and write to parquet file in dataset_folder
-        # TODO: HARD CODED FOR 70%
+        static_data["split"] = 0
+        static_data.loc[static_data.caseid.isin(list(train_set.keys())), "split"] = 1
+
+        static_data.to_parquet(
+            self.dataset_output_folder / "meta.parquet", index=False
+        )
         print(
             f"There are {train_samples} ({percent_train_samples:%}) train samples, "
             f"and {test_samples} {percent_test_samples:%} test samples."
         )
 
+    def _process_case(self, param) -> None:
+        caseid, case_data = param
+        case_data = case_data.reset_index("caseid", drop=True)
+        case_data = self._preprocess(case_data)
+
+        label = self._labelize(case_data)
+        case_data["label"] = label
+
+        self._create_segments(case_data, caseid)
+
     def build(self) -> None:
         # TODO: Build split
         # FIXME: Very slow
+        print("Loading raw data...")
         raw_data, static_data = self._import_raw()
+        print("Segmentation...")
 
-        bar_iterable = tqdm(raw_data.groupby(level="caseid", as_index=False), desc="Building segments")
-        for caseid, case_data in bar_iterable:
-            case_data = case_data.reset_index("caseid", drop=True)
-            case_data = self._preprocess(case_data)
+        with mp.Pool() as pool:
+            process_map(self._process_case, raw_data.groupby('caseid', as_index=False),
+                        total=len(static_data), chunksize=1)
 
-            label = self._labelize(case_data)
-            case_data["label"] = label
+        # bar_iterable = tqdm(raw_data.groupby(level="caseid", as_index=False), desc="Building segments")
+        # for caseid, case_data in bar_iterable:
+        #     case_data = case_data.reset_index("caseid", drop=True)
+        #     case_data = self._preprocess(case_data)
 
-            self._create_segments(case_data, caseid)  # type: ignore
+        #     label = self._labelize(case_data)
+        #     case_data["label"] = label
+
+        #     self._create_segments(case_data, caseid)  # type: ignore
 
         self._create_meta(static_data)
 

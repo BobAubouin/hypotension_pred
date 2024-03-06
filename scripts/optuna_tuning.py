@@ -7,20 +7,19 @@ NUMBER_CV_FOLD = 3
 
 
 def objective(trial, data, feature_name):
-
     params = {
         'max_depth': trial.suggest_int('max_depth', 1, 9),
-        'learning_rate': trial.suggest_float('learning_rate', 0.01, 1.0, log=True),
+        'learning_rate': trial.suggest_float('learning_rate', 0.001, 0.1, log=True),
         'n_estimators': trial.suggest_int('n_estimators', 50, 500),
         'min_child_weight': trial.suggest_int('min_child_weight', 1, 10),
         'gamma': trial.suggest_float('gamma', 1e-8, 1.0, log=True),
-        'subsample': trial.suggest_float('subsample', 0.01, 1.0, log=True),
+        'subsample': trial.suggest_float('subsample', 0.6, 1.0, log=True),
         'colsample_bytree': trial.suggest_float('colsample_bytree', 0.01, 1.0, log=True),
         'reg_alpha': trial.suggest_float('reg_alpha', 1e-8, 1.0, log=True),
         'reg_lambda': trial.suggest_float('reg_lambda', 1e-8, 1.0, log=True),
         'eval_metric': 'auc',
         'objective': 'binary:logistic',
-        'use_label_encoder': False
+        'nthread': 8,
     }
     # separate training in 3 folds
     caseid_list = np.array_split(data.caseid.unique(), NUMBER_CV_FOLD)
@@ -41,7 +40,7 @@ def objective(trial, data, feature_name):
         optuna_model.fit(X_train, y_train)
 
         # Make predictions
-        y_pred = optuna_model.predict(X_test)
+        y_pred = optuna_model.predict_proba(X_test)[:, 1]
 
         # Evaluate predictions
         accuracy = roc_auc_score(y_test, y_pred)
