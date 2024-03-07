@@ -88,7 +88,7 @@ class DataBuilder:
         assert (
             not dataset_output_folder.exists()
         ), "Manually delete previous dataset first"
-        dataset_output_folder.mkdir(parents=True)
+        (dataset_output_folder / CASE_PATH).mkdir(parents=True)
         self.dataset_output_folder = dataset_output_folder
         # End (Generated dataset)
 
@@ -238,7 +238,7 @@ class DataBuilder:
         column_to_features: dict[str, tuple[float]] = {}
 
         for half_time in self.half_times:
-            str_halt_time = str(half_time)
+            str_halt_time = str(half_time * self.sampling_time)
             for signal_name in self.signal_features_names:
                 ewm = segment_observation[signal_name].ewm(halflife=half_time)
                 ema_column = signal_name + "_ema_" + str_halt_time
@@ -276,7 +276,7 @@ class DataBuilder:
             segment_features["label"] = (
                 (segment_predictions.label.sum() > 0).astype(int),)
 
-            segment_features["time"] = segment_predictions.index[-1]
+            segment_features["time"] = segment_observations.index[-1]
 
             segment_features["time_before_IOH"] = (
                 segment_predictions.label.idxmax() - segment_observations.index[-1]
@@ -300,7 +300,7 @@ class DataBuilder:
 
         case_ids = [
             int(case_id_re.findall(file.stem)[0])  # Extract case_id from filenames
-            for file in self.dataset_output_folder.iterdir()
+            for file in (self.dataset_output_folder / CASE_PATH).iterdir()
             if file.suffix == ".parquet"
         ]
 
@@ -329,14 +329,14 @@ class DataBuilder:
                 test_set[case_id] = n_samples
                 test_samples += n_samples
 
-        percent_train_samples = train_samples / total_samples
-        percent_test_samples = test_samples / total_samples
         static_data["split"] = 0
         static_data.loc[static_data.caseid.isin(list(train_set.keys())), "split"] = 1
 
         static_data.to_parquet(
             self.dataset_output_folder / "meta.parquet", index=False
         )
+        percent_train_samples = train_samples / total_samples
+        percent_test_samples = test_samples / total_samples
         print(
             f"There are {train_samples} ({percent_train_samples:%}) train samples, "
             f"and {test_samples} {percent_test_samples:%} test samples."
