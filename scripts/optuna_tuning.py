@@ -20,6 +20,7 @@ def objective(trial, data, feature_name):
         'eval_metric': 'auc',
         'objective': 'binary:logistic',
         'nthread': 8,
+        'scale_pos_weight': 15,
     }
     # separate training in 3 folds
     caseid_list = np.array_split(data.caseid.unique(), NUMBER_CV_FOLD)
