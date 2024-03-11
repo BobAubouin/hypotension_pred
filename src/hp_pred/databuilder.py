@@ -197,11 +197,14 @@ class DataBuilder:
         label = (
             label_raw.rolling(window=self.min_time_ioh, min_periods=1)
             .max()
-            .astype(bool)
-            .astype(int)
+            .shift(-self.min_time_ioh+1, fill_value=0)
         )
 
-        return label
+        label_id = label.diff().clip(lower=0).cumsum().fillna(0)
+        label_id = label_id.astype(int)
+        label_id[label == 0] = np.nan
+
+        return label, label_id
 
     def _validate_segment(
         self, segment: pd.DataFrame, previous_segment: pd.DataFrame
@@ -226,7 +229,7 @@ class DataBuilder:
             threshold_percent = nan_ratio + (1 - nan_ratio) * MAX_NAN_SEGMENT
             threshold_n_nans = threshold_percent * self.segment_length
 
-            if segment[signal].isna().sum() > threshold_n_nans:
+            if segment.iloc[:self.observation_window_length][signal].isna().sum() > threshold_n_nans:
                 return False
 
         self.n_selected_segments += 1
@@ -278,9 +281,13 @@ class DataBuilder:
 
             segment_features["time"] = segment_observations.index[-1]
 
-            segment_features["time_before_IOH"] = (
-                segment_predictions.label.idxmax() - segment_observations.index[-1]
-            ).seconds
+            if segment_features.label.iloc[0] == 1:
+                segment_features["time_before_IOH"] = (
+                    segment_predictions.label.idxmax() - segment_observations.index[-1]
+                ).seconds
+                segment_features["label_id"] = segment_predictions.loc[segment_predictions.label.idxmax()].label_id
+            else:
+                segment_features["time_before_IOH"] = np.nan
 
             segment_features["caseid"] = case_id
 
@@ -347,8 +354,9 @@ class DataBuilder:
         case_data = case_data.reset_index("caseid", drop=True)
         case_data = self._preprocess(case_data)
 
-        label = self._labelize(case_data)
+        label, label_id = self._labelize(case_data)
         case_data["label"] = label
+        case_data["label_id"] = label_id
 
         self._create_segments(case_data, caseid)
 
