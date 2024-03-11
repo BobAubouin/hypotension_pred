@@ -1,4 +1,4 @@
-import optuna
+import pandas as pd
 import numpy as np
 from sklearn.metrics import roc_auc_score
 from xgboost import XGBClassifier
@@ -48,3 +48,21 @@ def objective(trial, data, feature_name):
         auc_list.append(accuracy)
 
     return np.mean(auc_list)
+
+
+def stats_for_one_threshold(y_true, y_pred, threshold, label_id):
+    y_pred = (y_pred > threshold).astype(int)
+
+    df = pd.DataFrame({'y_true': y_true, 'y_pred': y_pred, 'label_id': label_id})
+
+    true_positive = 0
+    false_negative = 0
+    for label, df_label in df.groupby('label_id'):
+        if np.isna(label):
+            continue
+
+        true_positive += df_label.y_pred.max()
+        false_negative += 1 - df_label.y_pred.max()
+
+    sensitivity = true_positive / (true_positive + false_negative)
+    return sensitivity
