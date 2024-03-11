@@ -227,7 +227,7 @@ class DataBuilder:
 
             nan_ratio = max(0, 1 - self.sampling_time / device_rate)
             threshold_percent = nan_ratio + (1 - nan_ratio) * MAX_NAN_SEGMENT
-            threshold_n_nans = threshold_percent * self.segment_length
+            threshold_n_nans = threshold_percent * self.observation_window_length
 
             if segment.iloc[:self.observation_window_length][signal].isna().sum() > threshold_n_nans:
                 return False
