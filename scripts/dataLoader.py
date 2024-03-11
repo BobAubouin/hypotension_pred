@@ -15,6 +15,11 @@ MAX_NAN_SGEMENT = 0.2  # maximum acceptable value for the nan in the segment (in
 NUMBER_CV_FOLD = 5  # number of cross-validation fold
 RECOVERY_TIME = 10*60  # recovery time after the IOH (in seconds)
 
+
+def detect_ioh(window: pd.Series) -> bool:
+    return (window < MIN_VALUE_IOH).loc[~np.isnan(window)].all()
+
+
 DEVICE_NAME_TO_SAMPLING_RATE = {
     "Solar8000": 2,
     "Primus": 7,
@@ -77,16 +82,31 @@ def label_caseid(df_case: pd.DataFrame, sampling_time: int):
         The dataframe with the label column added.
     """
     # create the label for the case
-    label = df_case.mbp.rolling(MIN_TIME_IOH//sampling_time,
-                                min_periods=1).apply(lambda x: (x < MIN_VALUE_IOH).loc[~np.isnan(x)].all())
-    label.fillna(0, inplace=True)
+    # label = df_case.mbp.rolling(MIN_TIME_IOH//sampling_time,
+    #                             min_periods=1).apply(lambda x: (x < MIN_VALUE_IOH).loc[~np.isnan(x)].all())
+    # label.fillna(0, inplace=True)
 
-    for i in range(1, MIN_TIME_IOH//sampling_time):
-        label = label + label.shift(-1, fill_value=0)
-    label = label.astype(bool).astype(int)
+    # for i in range(1, MIN_TIME_IOH//sampling_time):
+    #     label = label + label.shift(-1, fill_value=0)
+    # label = label.astype(bool).astype(int)
+
+    label_raw = (
+        df_case.mbp.rolling(MIN_TIME_IOH//sampling_time, min_periods=1)
+        .apply(detect_ioh)
+        .fillna(0)
+    )
+    # label = label_raw.copy()
+    # Roll the window on the next self.min_time_ioh samples, see if there is a label
+    label = (
+        label_raw.rolling(window=MIN_TIME_IOH//sampling_time, min_periods=1)
+        .max().shift(-MIN_TIME_IOH//sampling_time+1, fill_value=0)
+    )
+    label_id = label.diff().clip(lower=0).cumsum().fillna(0)
+    label_id[label == 0] = np.nan
 
     # add label to the data
     df_case.insert(0, 'label', label.astype(int))
+    df_case.insert(1, 'label_id', label_id)
 
     return df_case
 
