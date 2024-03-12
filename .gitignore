@@ -17,3 +17,7 @@ data/
 # temp file of latex
 report/root.*
 !report/root.tex
+
+# temp file of latex
+cdc_paper/root.*
+!cdc_paper/root.tex

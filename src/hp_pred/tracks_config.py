@@ -34,7 +34,6 @@ TRACKS_CONFIG = [
     ),
     TrackConfig(name="Orchestra", tracks=["PPF20_CT"]),
     TrackConfig(name="Primus", tracks=["MAC"]),
-    # TrackConfig(name="BIS", tracks=["BIS"])
 ]
 
 DEVICE_NAME_TO_SAMPLING_RATE = {

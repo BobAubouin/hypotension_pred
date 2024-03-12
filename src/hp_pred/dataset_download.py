@@ -343,6 +343,7 @@ def build_dataset(
     tracks = pd.read_parquet((output_folder / PARQUET_SUBFOLDER_NAME))
     logger.debug("Build dataset: Load the whole dataset")
 
+    cases = cases[cases.caseid.isin(case_ids)]
     static_data = cases[STATIC_DATA_NAMES + ["caseid"]].astype(STATIC_NAME_TO_DTYPES)
     logger.debug("Build dataset: Static data created")
 
