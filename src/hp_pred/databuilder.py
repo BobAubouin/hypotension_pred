@@ -1,15 +1,10 @@
-import re
-from collections import Counter
-from functools import reduce, partial
-from pathlib import Path
 import multiprocessing as mp
-
+from functools import reduce
+from pathlib import Path
 
 import numpy as np
-from tqdm.contrib.concurrent import process_map
 import pandas as pd
-import dask.dataframe as dd
-
+from tqdm.contrib.concurrent import process_map
 
 RAW_FEATURES_NAME_TO_NEW_NAME = {
     "Solar8000/ART_MBP": "mbp",
@@ -25,6 +20,12 @@ RAW_FEATURES_NAME_TO_NEW_NAME = {
 DEVICE_NAME_TO_SAMPLING_RATE = {"mac": 7, "pp_ct": 1}
 SOLAR_SAMPLING_RATE = 2
 
+# Ratio of train samples (segments) in percent
+TRAIN_RATIO = 0.7
+
+CASE_SUBFOLDER_NAME = "cases"
+
+# Defaults parameter for DatasetBuilder
 WINDOW_SIZE_PEAK = 500  # window size for the peak detection
 TRESHOLD_PEAK = 30  # threshold for the peak detection
 MIN_TIME_IOH = 60  # minimum time for the IOH to be considered as IOH (in seconds)
@@ -38,14 +39,7 @@ MAX_MBP_SEGMENT = (
     150  # maximum acceptable value for the mean arterial pressure (in mmHg)
 )
 MAX_NAN_SEGMENT = 0.2  # maximum acceptable value for the nan in the segment (in %)
-NUMBER_CV_FOLD = 5  # number of cross-validation fold
 RECOVERY_TIME = 10 * 60  # recovery time after the IOH (in seconds)
-TRAIN_RATIO = 0.7
-CASE_PATH = "cases"
-
-
-def detect_ioh(window: pd.Series) -> bool:
-    return (window < MIN_VALUE_IOH).loc[~np.isnan(window)].all()
 
 
 class DataBuilder:
@@ -64,6 +58,7 @@ class DataBuilder:
         half_times: list[int],
         window_size_peak: int = WINDOW_SIZE_PEAK,
         min_time_ioh: int = MIN_TIME_IOH,
+        min_value_ioh: float = MIN_VALUE_IOH,
         recovery_time: int = RECOVERY_TIME,
         max_mbp_segment: int = MAX_MBP_SEGMENT,
         min_mbp_segment: int = MIN_MBP_SEGMENT,
@@ -88,7 +83,7 @@ class DataBuilder:
         assert (
             not dataset_output_folder.exists()
         ), "Manually delete previous dataset first"
-        (dataset_output_folder / CASE_PATH).mkdir(parents=True)
+        (dataset_output_folder / CASE_SUBFOLDER_NAME).mkdir(parents=True)
         self.dataset_output_folder = dataset_output_folder
         # End (Generated dataset)
 
@@ -108,19 +103,25 @@ class DataBuilder:
         )
         self.n_raw_segments = 0
         self.n_selected_segments = 0
+        self.recovery_time = recovery_time // sampling_time
+        self.max_nan_segment = max_nan_segment
         # End (Segments parameters)
 
         # Features generation
         self.half_times = [half_time // sampling_time for half_time in half_times]
         # End (Features generation)
 
+        # Preprocess
         self.window_size_peak = window_size_peak // sampling_time
-        self.min_time_ioh = min_time_ioh // sampling_time
-        self.recovery_time = recovery_time // sampling_time
         self.max_mbp_segment = max_mbp_segment
         self.min_mbp_segment = min_mbp_segment
         self.treshold_peak = treshold_peak
-        self.max_nan_segment = max_nan_segment
+        # End (Preprocess)
+
+        # Labelize
+        self.min_time_ioh = min_time_ioh // sampling_time
+        self.min_value_ioh = min_value_ioh
+        # End (Labelize)
 
     def _import_raw(self) -> tuple[pd.DataFrame, pd.DataFrame]:
         raw_data = pd.read_parquet(self.raw_data_folder)
@@ -185,11 +186,14 @@ class DataBuilder:
         # NOTE: acc = accumulator
         return reduce(lambda acc, method: method(acc), _preprocess_functions, case_data)
 
-    def _labelize(self, case_data: pd.DataFrame) -> pd.Series:
+    def detect_ioh(self, window: pd.Series) -> bool:
+        return (window < self.min_value_ioh).loc[~np.isnan(window)].all()
+
+    def _labelize(self, case_data: pd.DataFrame) -> tuple[pd.Series, pd.Series]:
         # create the label for the case
         label_raw = (
             case_data.mbp.rolling(self.min_time_ioh, min_periods=1)
-            .apply(detect_ioh)
+            .apply(self.detect_ioh)
             .fillna(0)
         )
 
@@ -197,7 +201,7 @@ class DataBuilder:
         label = (
             label_raw.rolling(window=self.min_time_ioh, min_periods=1)
             .max()
-            .shift(-self.min_time_ioh+1, fill_value=0)
+            .shift(-self.min_time_ioh + 1, fill_value=0)
         )
 
         label_id = label.diff().clip(lower=0).cumsum().fillna(0)
@@ -226,10 +230,13 @@ class DataBuilder:
             device_rate = DEVICE_NAME_TO_SAMPLING_RATE.get(signal, SOLAR_SAMPLING_RATE)
 
             nan_ratio = max(0, 1 - self.sampling_time / device_rate)
-            threshold_percent = nan_ratio + (1 - nan_ratio) * MAX_NAN_SEGMENT
+            threshold_percent = nan_ratio + (1 - nan_ratio) * self.max_nan_segment
             threshold_n_nans = threshold_percent * self.observation_window_length
 
-            if segment.iloc[:self.observation_window_length][signal].isna().sum() > threshold_n_nans:
+            if (
+                segment.iloc[: self.observation_window_length][signal].isna().sum()
+                > threshold_n_nans
+            ):
                 return False
 
         self.n_selected_segments += 1
@@ -247,8 +254,8 @@ class DataBuilder:
                 ema_column = signal_name + "_ema_" + str_halt_time
                 std_column = signal_name + "_std_" + str_halt_time
 
-                column_to_features[ema_column] = ewm.mean().iloc[-1],
-                column_to_features[std_column] = ewm.std().iloc[-1],
+                column_to_features[ema_column] = (ewm.mean().iloc[-1],)
+                column_to_features[std_column] = (ewm.std().iloc[-1],)
 
         return pd.DataFrame(column_to_features, dtype="Float32")
 
@@ -261,9 +268,9 @@ class DataBuilder:
         for i_time_start in indexes_range:
             self.n_raw_segments += 1
 
-            segment = case_data.iloc[i_time_start: i_time_start + self.segment_length]
+            segment = case_data.iloc[i_time_start : i_time_start + self.segment_length]
 
-            start_time_previous_segment = max(0, i_time_start - RECOVERY_TIME)
+            start_time_previous_segment = max(0, i_time_start - self.recovery_time)
             previous_segment = case_data.iloc[start_time_previous_segment:i_time_start]
 
             if not self._validate_segment(segment, previous_segment):
@@ -274,10 +281,11 @@ class DataBuilder:
             segment_features = self._create_segment_features(segment_observations)
 
             segment_predictions = segment.iloc[
-                (self.observation_window_length + self.leading_time):
+                (self.observation_window_length + self.leading_time) :
             ]
             segment_features["label"] = (
-                (segment_predictions.label.sum() > 0).astype(int),)
+                (segment_predictions.label.sum() > 0).astype(int),
+            )
 
             segment_features["time"] = segment_observations.index[-1]
 
@@ -285,7 +293,9 @@ class DataBuilder:
                 segment_features["time_before_IOH"] = (
                     segment_predictions.label.idxmax() - segment_observations.index[-1]
                 ).seconds
-                segment_features["label_id"] = segment_predictions.loc[segment_predictions.label.idxmax()].label_id
+                segment_features["label_id"] = segment_predictions.loc[
+                    segment_predictions.label.idxmax()
+                ].label_id
             else:
                 segment_features["time_before_IOH"] = np.nan
 
@@ -297,56 +307,62 @@ class DataBuilder:
             return
         case_df = pd.concat(list_of_segments, axis=0, ignore_index=True)
 
-        parquet_file = (
-            self.dataset_output_folder / f"{CASE_PATH}/case{case_id}.parquet"
-        )
+        filename = f"case{case_id}.parquet"
+        parquet_file = self.dataset_output_folder / CASE_SUBFOLDER_NAME / filename
         case_df.to_parquet(parquet_file, index=False)
 
     def _create_meta(self, static_data: pd.DataFrame) -> None:
-        case_id_re = re.compile(r"\d+")
+        case_id_to_n_segments = (
+            pd.read_parquet(self.dataset_output_folder / CASE_SUBFOLDER_NAME)
+            .groupby("caseid")
+            .apply(len)
+            .to_dict()
+        )
 
-        case_ids = [
-            int(case_id_re.findall(file.stem)[0])  # Extract case_id from filenames
-            for file in (self.dataset_output_folder / CASE_PATH).iterdir()
-            if file.suffix == ".parquet"
-        ]
-
-        # Keep case ids with segment only
+        case_ids = list(case_id_to_n_segments)
         static_data = static_data[static_data.caseid.isin(case_ids)]
 
-        count_segment_by_case_ids = Counter(case_ids)
-        caseid_and_n_samples_sorted: list[tuple[int, int]] = sorted(
-            count_segment_by_case_ids.items(),
+        caseid_and_n_segments_sorted: list[tuple[int, int]] = sorted(
+            case_id_to_n_segments.items(),
             key=lambda x: x[1],  # key 1 is n_samples
-            reverse=True
+            reverse=True,
         )
 
-        train_set: dict[int, int] = {}
-        test_set: dict[int, int] = {}
-        train_samples = 0
-        test_samples = 0
+        train_case_id_to_n_segments: dict[int, int] = {}
+        test_case_id_to_n_segments: dict[int, int] = {}
+        train_n_segments = 0
+        test_n_segments = 0
 
-        total_samples = sum(count_segment_by_case_ids.values())
+        all_n_segments = sum(case_id_to_n_segments.values())
 
-        for case_id, n_samples in caseid_and_n_samples_sorted:
-            if train_samples / total_samples <= TRAIN_RATIO:
-                train_set[case_id] = n_samples
-                train_samples += n_samples
+        for case_id, n_samples in caseid_and_n_segments_sorted:
+            if train_n_segments / all_n_segments <= TRAIN_RATIO:
+                train_case_id_to_n_segments[case_id] = n_samples
+                train_n_segments += n_samples
             else:
-                test_set[case_id] = n_samples
-                test_samples += n_samples
+                test_case_id_to_n_segments[case_id] = n_samples
+                test_n_segments += n_samples
 
-        static_data["split"] = 0
-        static_data.loc[static_data.caseid.isin(list(train_set.keys())), "split"] = 1
+        case_ids_and_splits = [
+            (
+                (case_id, "train")
+                if case_id in train_case_id_to_n_segments
+                else (case_id, "test")
+            )
+            for case_id in case_id_to_n_segments
+        ]
+        split = pd.DataFrame.from_records(
+            data=case_ids_and_splits, columns=["caseid", "split"]
+        ).astype({"split": "category"})
+        static_data.merge(split, on="caseid")
 
-        static_data.to_parquet(
-            self.dataset_output_folder / "meta.parquet", index=False
-        )
-        percent_train_samples = train_samples / total_samples
-        percent_test_samples = test_samples / total_samples
+        static_data.to_parquet(self.dataset_output_folder / "meta.parquet", index=False)
+
+        percent_train_samples = train_n_segments / all_n_segments
+        percent_test_samples = test_n_segments / all_n_segments
         print(
-            f"There are {train_samples} ({percent_train_samples:%}) train samples, "
-            f"and {test_samples} {percent_test_samples:%} test samples."
+            f"There are {train_n_segments} ({percent_train_samples:.2%}) train samples, "
+            f"and {test_n_segments} {percent_test_samples:.2%} test samples."
         )
 
     def _process_case(self, param) -> None:
@@ -361,25 +377,17 @@ class DataBuilder:
         self._create_segments(case_data, caseid)
 
     def build(self) -> None:
-        # TODO: Build split
-        # FIXME: Very slow
         print("Loading raw data...")
         raw_data, static_data = self._import_raw()
+
         print("Segmentation...")
-
         with mp.Pool() as pool:
-            process_map(self._process_case, raw_data.groupby('caseid', as_index=False),
-                        total=len(static_data), chunksize=1)
-
-        # bar_iterable = tqdm(raw_data.groupby(level="caseid", as_index=False), desc="Building segments")
-        # for caseid, case_data in bar_iterable:
-        #     case_data = case_data.reset_index("caseid", drop=True)
-        #     case_data = self._preprocess(case_data)
-
-        #     label = self._labelize(case_data)
-        #     case_data["label"] = label
-
-        #     self._create_segments(case_data, caseid)  # type: ignore
+            process_map(
+                self._process_case,
+                raw_data.groupby("caseid", as_index=False),
+                total=len(static_data),
+                chunksize=1,
+            )
 
         self._create_meta(static_data)
 
