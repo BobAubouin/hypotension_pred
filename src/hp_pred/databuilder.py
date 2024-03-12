@@ -1,4 +1,5 @@
 import multiprocessing as mp
+import json
 from functools import reduce
 from pathlib import Path
 
@@ -24,10 +25,11 @@ SOLAR_SAMPLING_RATE = 2
 TRAIN_RATIO = 0.7
 
 CASE_SUBFOLDER_NAME = "cases"
+PARAMETERS_FILENAME = "DatasetBuilder_parameters.json"
 
-# Defaults parameter for DatasetBuilder
+# Defaults parameters for DatasetBuilder
 WINDOW_SIZE_PEAK = 500  # window size for the peak detection
-TRESHOLD_PEAK = 30  # threshold for the peak detection
+THRESHOLD_PEAK = 30  # threshold for the peak detection
 MIN_TIME_IOH = 60  # minimum time for the IOH to be considered as IOH (in seconds)
 MIN_VALUE_IOH = (
     65  # minimum value for the mean arterial pressure to be considered as IOH (in mmHg)
@@ -62,7 +64,7 @@ class DataBuilder:
         recovery_time: int = RECOVERY_TIME,
         max_mbp_segment: int = MAX_MBP_SEGMENT,
         min_mbp_segment: int = MIN_MBP_SEGMENT,
-        treshold_peak: int = TRESHOLD_PEAK,
+        threshold_peak: int = THRESHOLD_PEAK,
         max_nan_segment: float = MAX_NAN_SEGMENT,
     ) -> None:
         # Raw data
@@ -87,9 +89,13 @@ class DataBuilder:
         self.dataset_output_folder = dataset_output_folder
         # End (Generated dataset)
 
-        # Transform data
+        # Preprocess
         self.sampling_time = sampling_time
-        # End (Transform data)
+        self.window_size_peak = window_size_peak // sampling_time
+        self.max_mbp_segment = max_mbp_segment
+        self.min_mbp_segment = min_mbp_segment
+        self.threshold_peak = threshold_peak
+        # End (Preprocess)
 
         # Segments parameters
         self.leading_time = leading_time // sampling_time
@@ -108,13 +114,6 @@ class DataBuilder:
         # Features generation
         self.half_times = [half_time // sampling_time for half_time in half_times]
         # End (Features generation)
-
-        # Preprocess
-        self.window_size_peak = window_size_peak // sampling_time
-        self.max_mbp_segment = max_mbp_segment
-        self.min_mbp_segment = min_mbp_segment
-        self.treshold_peak = treshold_peak
-        # End (Preprocess)
 
         # Labelize
         self.min_time_ioh = min_time_ioh // sampling_time
@@ -165,13 +164,13 @@ class DataBuilder:
 
         # Identify peaks based on the difference from the rolling mean
         case_data.mbp.mask(
-            (case_data.mbp - rolling_mean_mbp).abs() > self.treshold_peak
+            (case_data.mbp - rolling_mean_mbp).abs() > self.threshold_peak
         )
         case_data.sbp.mask(
-            (case_data.sbp - rolling_mean_sbp).abs() > self.treshold_peak * 1.5
+            (case_data.sbp - rolling_mean_sbp).abs() > self.threshold_peak * 1.5
         )
         case_data.dbp.mask(
-            (case_data.dbp - rolling_mean_dbp).abs() > self.treshold_peak
+            (case_data.dbp - rolling_mean_dbp).abs() > self.threshold_peak
         )
 
         return case_data
@@ -349,7 +348,7 @@ class DataBuilder:
         split = pd.DataFrame.from_records(
             data=case_ids_and_splits, columns=["caseid", "split"]
         ).astype({"split": "category"})
-        static_data.merge(split, on="caseid")
+        static_data = static_data.merge(split, on="caseid")
 
         static_data.to_parquet(self.dataset_output_folder / "meta.parquet", index=False)
 
@@ -371,6 +370,38 @@ class DataBuilder:
 
         self._create_segments(case_data, caseid)
 
+    def _dump_dataset_parameter(self) -> None:
+        parameters = {
+            # Data description
+            "signal_names": self.signal_features_names,
+            "static_names": self.static_data_names,
+            # Pre process parameters
+            "sampling_time": self.sampling_time,
+            "window_size_peak": self.window_size_peak,
+            "max_mbp_segment": self.max_mbp_segment,
+            "min_mbp_segment": self.min_mbp_segment,
+            "treshold_peak": self.threshold_peak,
+            "leading_time": self.leading_time,
+            # Segmentations parameters
+            "prediction_window_length": self.prediction_window_length,
+            "observation_window_length": self.observation_window_length,
+            "segment_shift": self.segment_shift,
+            "segment_length ": self.segment_length,
+            "recovery_time": self.recovery_time,
+            "max_nan_segment": self.max_nan_segment,
+            # Label parameters
+            "min_time_ioh": self.min_time_ioh,
+            "min_value_ioh":  self.min_time_ioh,
+            # Features parameters
+            "half_times": self.half_times,
+        }
+
+        parameters_file = self.dataset_output_folder / PARAMETERS_FILENAME
+        with open(parameters_file, mode="w", encoding="utf-8") as file:
+            json.dump(parameters, file, indent=2)
+
+
+
     def build(self) -> None:
         print("Loading raw data...")
         raw_data, static_data = self._import_raw()
@@ -385,3 +416,4 @@ class DataBuilder:
             )
 
         self._create_meta(static_data)
+        self._dump_dataset_parameter()
