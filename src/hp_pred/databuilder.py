@@ -101,8 +101,6 @@ class DataBuilder:
             + self.leading_time
             + self.prediction_window_length
         )
-        self.n_raw_segments = 0
-        self.n_selected_segments = 0
         self.recovery_time = recovery_time // sampling_time
         self.max_nan_segment = max_nan_segment
         # End (Segments parameters)
@@ -239,7 +237,6 @@ class DataBuilder:
             ):
                 return False
 
-        self.n_selected_segments += 1
         return True
 
     def _create_segment_features(
@@ -266,8 +263,6 @@ class DataBuilder:
         segment_id = 0
         list_of_segments = []
         for i_time_start in indexes_range:
-            self.n_raw_segments += 1
-
             segment = case_data.iloc[i_time_start : i_time_start + self.segment_length]
 
             start_time_previous_segment = max(0, i_time_start - self.recovery_time)
@@ -390,8 +385,3 @@ class DataBuilder:
             )
 
         self._create_meta(static_data)
-
-        print(
-            f"All segments considered: {self.n_raw_segments}\n"
-            f"Selected segments: {self.n_selected_segments}"
-        )
