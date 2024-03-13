@@ -7,7 +7,7 @@ from sklearn.metrics import auc, roc_curve
 NUMBER_CV_FOLD = 3
 
 
-def objective(trial, data, feature_name):
+def objective_xgboost(trial, data, feature_name):
     params = {
         'max_depth': trial.suggest_int('max_depth', 1, 9),
         'learning_rate': trial.suggest_float('learning_rate', 0.001, 0.1, log=True),
