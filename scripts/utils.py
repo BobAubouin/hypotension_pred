@@ -7,7 +7,7 @@ from sklearn.metrics import auc, roc_curve
 NUMBER_CV_FOLD = 3
 
 
-def objective_xgboost(trial, data, feature_name):
+def objective_xgboost(trial, data, feature_name, cv_split):
     params = {
         'max_depth': trial.suggest_int('max_depth', 1, 9),
         'learning_rate': trial.suggest_float('learning_rate', 0.001, 0.1, log=True),
@@ -24,12 +24,11 @@ def objective_xgboost(trial, data, feature_name):
         'scale_pos_weight': 15,
     }
     # separate training in 3 folds
-    caseid_list = np.array_split(data.caseid.unique(), NUMBER_CV_FOLD)
     auc_list = []
     for i in range(NUMBER_CV_FOLD):
         # split the data
-        test_caseid = caseid_list[i]
-        train_caseid = np.concatenate([caseid_list[j] for j in range(NUMBER_CV_FOLD) if j != i])
+        test_caseid = cv_split[i]
+        train_caseid = np.concatenate([cv_split[j] for j in range(NUMBER_CV_FOLD) if j != i])
         df_train = data[data.caseid.isin(train_caseid)]
         df_test = data[data.caseid.isin(test_caseid)]
 
@@ -158,3 +157,59 @@ def bootstrap_test(y_true, y_pred, y_label_id, n_bootstraps=200, rng_seed=42):
         }
     )
     return df, tpr_list
+
+
+def create_balanced_cv(case_label_data: pd.DataFrame,
+                       n_splits: int = 3,
+                       tol_split: float = 0.01,
+                       tol_label: float = 0.01,
+                       nb_max_iter: int = 1000,
+                       ) -> list:
+
+    ratio_split = 1 / n_splits
+    ratio_label = case_label_data['label_count'].sum() / case_label_data['segment_count'].sum()
+    nb_iter = 0
+    best_cost = np.inf
+    best_split = None
+    while True:
+        nb_iter += 1
+        if nb_iter > nb_max_iter:
+            break
+        np.random.seed(nb_iter)
+        split = case_label_data.index.values
+        np.random.shuffle(split)
+
+        index_list = np.array_split(split, n_splits)
+
+        split_list = [case_label_data.loc[index] for index in index_list]
+
+        ratio_segment_list = [split['segment_count'].sum() / case_label_data['segment_count'].sum()
+                              for split in split_list]
+        ratio_label_list = [split['label_count'].sum() / split['segment_count'].sum() for split in split_list]
+
+        cost = sum([abs(ratio - ratio)/tol_split for ratio in ratio_segment_list]) + \
+            sum([abs(ratio - ratio_label)/tol_label for ratio in ratio_label_list])
+
+        if cost < best_cost:
+            best_cost = cost
+            best_split = nb_iter
+
+        if (max([abs(ratio - ratio)/tol_split for ratio in ratio_segment_list]) < tol_split) and (max([abs(ratio - ratio_label)/tol_label for ratio in ratio_label_list]) < tol_label):
+            break
+
+    np.random.seed(best_split)
+    split = case_label_data.index.values
+    np.random.shuffle(split)
+    split_list = []
+    index_list = []
+    for i in range(n_splits):
+        index_list.append(split[int(len(split) * i * ratio_split):int(len(split) * (i + 1) * ratio_split)])
+
+    split_list = [case_label_data.loc[index] for index in index_list]
+
+    # print the result of the split
+    for i, split in enumerate(split_list):
+        print(
+            f"split {i} : {split['segment_count'].sum()} segments, {split['label_count'].sum()} labels, {split['label_count'].sum() / split['segment_count'].sum()} ratio label")
+
+    return index_list
