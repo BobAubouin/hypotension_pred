@@ -270,7 +270,7 @@ class DataBuilder:
         segment_id = 0
         list_of_segments = []
         for i_time_start in indexes_range:
-            segment = case_data.iloc[i_time_start: i_time_start + self.segment_length]
+            segment = case_data.iloc[i_time_start : i_time_start + self.segment_length]
 
             start_time_previous_segment = max(0, i_time_start - self.recovery_time)
             previous_segment = case_data.iloc[start_time_previous_segment:i_time_start]
@@ -283,7 +283,7 @@ class DataBuilder:
             segment_features = self._create_segment_features(segment_observations)
 
             segment_predictions = segment.iloc[
-                (self.observation_window_length + self.leading_time):
+                (self.observation_window_length + self.leading_time) :
             ]
             segment_features["label"] = (
                 (segment_predictions.label.sum() > 0).astype(int),
@@ -317,7 +317,8 @@ class DataBuilder:
 
         case_data = (
             pd.read_parquet(self.dataset_output_folder / CASE_SUBFOLDER_NAME)
-            .groupby("caseid").agg(
+            .groupby("caseid")
+            .agg(
                 segment_count=("label", "count"),
                 label_count=("label", "sum"),
             )
@@ -326,18 +327,10 @@ class DataBuilder:
         case_ids = list(case_data.index)
         static_data = static_data[static_data.caseid.isin(case_ids)]
 
-        train_index = self._perform_split(case_data,
-                                          tol_segment=self.tolerance_segment_split,
-                                          tol_label=self.tolerance_label_split,
-                                          nb_max_iter=self.n_max_iter_split
-                                          )
+        train_index = self._perform_split(case_data)
 
         case_ids_and_splits = [
-            (
-                (case_id, "train")
-                if case_id in train_index
-                else (case_id, "test")
-            )
+            ((case_id, "train") if case_id in train_index else (case_id, "test"))
             for case_id in case_ids
         ]
 
@@ -348,45 +341,56 @@ class DataBuilder:
 
         static_data.to_parquet(self.dataset_output_folder / "meta.parquet", index=False)
 
-    def _perform_split(self, case_label_data: pd.DataFrame, tol_segment: float, tol_label: float, nb_max_iter: int) -> list:
+    def _perform_split(self, case_label_data: pd.DataFrame) -> list:
 
         nb_iter = 0
         best_cost = np.inf
-        best_split = None
         while True:
             nb_iter += 1
-            if nb_iter > nb_max_iter:
+            if nb_iter > self.n_max_iter_split:
                 break
             np.random.seed(nb_iter)
             split = case_label_data.index.values
             np.random.shuffle(split)
-            test = case_label_data.loc[split[:int(len(split) * TRAIN_RATIO)]]
-            train = case_label_data.loc[split[int(len(split) * TRAIN_RATIO):]]
+            test = case_label_data.loc[split[: int(len(split) * TRAIN_RATIO)]]
+            train = case_label_data.loc[split[int(len(split) * TRAIN_RATIO) :]]
 
-            ratio_segment = train['segment_count'].sum() / case_label_data['segment_count'].sum()
-            train_ratio_label = train['label_count'].sum() / train['segment_count'].sum()
-            test_ratio_label = test['label_count'].sum() / test['segment_count'].sum()
+            ratio_segment = (
+                train["segment_count"].sum() / case_label_data["segment_count"].sum()
+            )
+            train_ratio_label = (
+                train["label_count"].sum() / train["segment_count"].sum()
+            )
+            test_ratio_label = test["label_count"].sum() / test["segment_count"].sum()
 
-            cost = abs(ratio_segment - TRAIN_RATIO)/tol_segment + \
-                abs(train_ratio_label - test_ratio_label)/tol_label
+            cost = (
+                abs(ratio_segment - TRAIN_RATIO) / self.tolerance_segment_split
+                + abs(train_ratio_label - test_ratio_label) / self.tolerance_label_split
+            )
 
             if cost < best_cost:
                 best_cost = cost
                 best_iter = nb_iter
 
-            if (abs(ratio_segment - TRAIN_RATIO) < tol_segment) and (abs(train_ratio_label - test_ratio_label) < tol_label):
+            if (abs(ratio_segment - TRAIN_RATIO) < self.tolerance_segment_split) and (
+                abs(train_ratio_label - test_ratio_label) < self.tolerance_label_split
+            ):
                 break
 
         np.random.seed(best_iter)
         split = case_label_data.index.values
         np.random.shuffle(split)
-        train_index = split[:int(len(split) * TRAIN_RATIO)]
+        train_index = split[: int(len(split) * TRAIN_RATIO)]
 
-        train = case_label_data.loc[split[:int(len(split) * TRAIN_RATIO)]]
-        test = case_label_data.loc[split[int(len(split) * TRAIN_RATIO):]]
+        train = case_label_data.loc[split[: int(len(split) * TRAIN_RATIO)]]
+        test = case_label_data.loc[split[int(len(split) * TRAIN_RATIO) :]]
 
-        print(f"Train : {train['segment_count'].sum() / case_label_data['segment_count'].sum()*100:.2f} % of segments, {train['label_count'].sum() / train['segment_count'].sum()*100:.2f} % of labels")
-        print(f"Test : {test['segment_count'].sum() / case_label_data['segment_count'].sum()*100:.2f} % of segments, {test['label_count'].sum() / test['segment_count'].sum()*100:.2f} % of labels")
+        print(
+            f"Train : {train['segment_count'].sum() / case_label_data['segment_count'].sum()*100:.2f} % of segments, {train['label_count'].sum() / train['segment_count'].sum()*100:.2f} % of labels"
+        )
+        print(
+            f"Test : {test['segment_count'].sum() / case_label_data['segment_count'].sum()*100:.2f} % of segments, {test['label_count'].sum() / test['segment_count'].sum()*100:.2f} % of labels"
+        )
         print(f"Best cost : {best_cost:.2f} at iteration {best_iter}")
 
         return train_index.tolist()
@@ -423,7 +427,7 @@ class DataBuilder:
             "max_nan_segment": self.max_nan_segment,
             # Label parameters
             "min_time_ioh": self.min_time_ioh,
-            "min_value_ioh":  self.min_time_ioh,
+            "min_value_ioh": self.min_time_ioh,
             # Features parameters
             "half_times": self.half_times,
             # Split parameters
