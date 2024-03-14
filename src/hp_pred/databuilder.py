@@ -389,7 +389,7 @@ class DataBuilder:
         print(f"Test : {test['segment_count'].sum() / case_label_data['segment_count'].sum()*100:.2f} % of segments, {test['label_count'].sum() / test['segment_count'].sum()*100:.2f} % of labels")
         print(f"Best cost : {best_cost:.2f} at iteration {best_iter}")
 
-        return train_index
+        return train_index.tolist()
 
     def _process_case(self, param) -> None:
         caseid, case_data = param
