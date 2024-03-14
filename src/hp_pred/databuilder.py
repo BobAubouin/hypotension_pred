@@ -42,9 +42,9 @@ MAX_MBP_SEGMENT = (
 )
 MAX_NAN_SEGMENT = 0.2  # maximum acceptable value for the nan in the segment (in %)
 RECOVERY_TIME = 10 * 60  # recovery time after the IOH (in seconds)
-TOL_SEGMENT_SPLIT = 0.01  # tolerance for the segment split
-TOL_LABEL_SPLIT = 0.005  # tolerance for the label split
-NB_MAX_ITER_SPLIT = 10000  # maximum number of iteration for the split
+TOLERANCE_SEGMENT_SPLIT = 0.01  # tolerance for the segment split
+TOLERANCE_LABEL_SPLIT = 0.005  # tolerance for the label split
+N_MAX_ITER_SPLIT = 10000  # maximum number of iteration for the split
 
 
 class DataBuilder:
@@ -69,9 +69,9 @@ class DataBuilder:
         min_mbp_segment: int = MIN_MBP_SEGMENT,
         threshold_peak: int = THRESHOLD_PEAK,
         max_nan_segment: float = MAX_NAN_SEGMENT,
-        tol_segment_split: float = TOL_SEGMENT_SPLIT,
-        tol_label_split: float = TOL_LABEL_SPLIT,
-        nb_max_iter_split: int = NB_MAX_ITER_SPLIT,
+        tolerance_segment_split: float = TOLERANCE_SEGMENT_SPLIT,
+        tolerance_label_split: float = TOLERANCE_LABEL_SPLIT,
+        n_max_iter_split: int = N_MAX_ITER_SPLIT,
     ) -> None:
         # Raw data
         raw_data_folder = Path(raw_data_folder_path)
@@ -123,9 +123,9 @@ class DataBuilder:
         # End (Labelize)
 
         # Split
-        self.tol_segment_split = tol_segment_split
-        self.tol_label_split = tol_label_split
-        self.nb_max_iter_split = nb_max_iter_split
+        self.tolerance_segment_split = tolerance_segment_split
+        self.tolerance_label_split = tolerance_label_split
+        self.n_max_iter_split = n_max_iter_split
         # End (Split)
 
     def _import_raw(self) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -327,9 +327,9 @@ class DataBuilder:
         static_data = static_data[static_data.caseid.isin(case_ids)]
 
         train_index = self._perform_split(case_data,
-                                          tol_segment=self.tol_segment_split,
-                                          tol_label=self.tol_label_split,
-                                          nb_max_iter=self.nb_max_iter_split
+                                          tol_segment=self.tolerance_segment_split,
+                                          tol_label=self.tolerance_label_split,
+                                          nb_max_iter=self.n_max_iter_split
                                           )
 
         case_ids_and_splits = [
@@ -427,9 +427,9 @@ class DataBuilder:
             # Features parameters
             "half_times": self.half_times,
             # Split parameters
-            "tol_segment_split": self.tol_segment_split,
-            "tol_label_split": self.tol_label_split,
-            "nb_max_iter_split": self.nb_max_iter_split,
+            "tol_segment_split": self.tolerance_segment_split,
+            "tol_label_split": self.tolerance_label_split,
+            "nb_max_iter_split": self.n_max_iter_split,
         }
 
         parameters_file = self.dataset_output_folder / PARAMETERS_FILENAME
