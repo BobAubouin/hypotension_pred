@@ -48,6 +48,37 @@ N_MAX_ITER_SPLIT = 10000  # maximum number of iteration for the split
 
 
 class DataBuilder:
+    def _store_parameters(self):
+        self.parameters_file = self.dataset_output_folder / PARAMETERS_FILENAME
+        self.parameters: dict = {
+            # Data description
+            "signal_names": self.signal_features_names,
+            "static_names": self.static_data_names,
+            # Pre process parameters
+            "sampling_time": self.sampling_time,
+            "window_size_peak": self.window_size_peak,
+            "max_mbp_segment": self.max_mbp_segment,
+            "min_mbp_segment": self.min_mbp_segment,
+            "treshold_peak": self.threshold_peak,
+            # Segmentations parameters
+            "prediction_window_length": self.prediction_window_length,
+            "leading_time": self.leading_time,
+            "observation_window_length": self.observation_window_length,
+            "segment_shift": self.segment_shift,
+            "segment_length ": self.segment_length,
+            "recovery_time": self.recovery_time,
+            "max_nan_segment": self.max_nan_segment,
+            # Label parameters
+            "min_time_ioh": self.min_time_ioh,
+            "min_value_ioh": self.min_time_ioh,
+            # Features parameters
+            "half_times": self.half_times,
+            # Split parameters
+            "tolerance_segment_split": self.tolerance_segment_split,
+            "tolerance_label_split": self.tolerance_label_split,
+            "n_max_iter_split": self.n_max_iter_split,
+        }
+
     def __init__(
         self,
         raw_data_folder_path: str,
@@ -89,6 +120,7 @@ class DataBuilder:
         # Generated dataset
         dataset_output_folder = Path(dataset_output_folder_path)
         self.dataset_output_folder = dataset_output_folder
+        self.cases_folder = self.dataset_output_folder / CASE_SUBFOLDER_NAME
         # End (Generated dataset)
 
         # Preprocess
@@ -127,6 +159,8 @@ class DataBuilder:
         self.tolerance_label_split = tolerance_label_split
         self.n_max_iter_split = n_max_iter_split
         # End (Split)
+
+        self._store_parameters()
 
     def _import_raw(self) -> tuple[pd.DataFrame, pd.DataFrame]:
         raw_data = pd.read_parquet(self.raw_data_folder)
@@ -310,13 +344,13 @@ class DataBuilder:
         case_df = pd.concat(list_of_segments, axis=0, ignore_index=True)
 
         filename = f"case{case_id}.parquet"
-        parquet_file = self.dataset_output_folder / CASE_SUBFOLDER_NAME / filename
+        parquet_file = self.cases_folder / filename
         case_df.to_parquet(parquet_file, index=False)
 
     def _create_meta(self, static_data: pd.DataFrame) -> None:
 
         case_data = (
-            pd.read_parquet(self.dataset_output_folder / CASE_SUBFOLDER_NAME)
+            pd.read_parquet(self.cases_folder)
             .groupby("caseid")
             .agg(
                 segment_count=("label", "count"),
@@ -407,48 +441,31 @@ class DataBuilder:
         self._create_segments(case_data, caseid)
 
     def _dump_dataset_parameter(self) -> None:
-        parameters = {
-            # Data description
-            "signal_names": self.signal_features_names,
-            "static_names": self.static_data_names,
-            # Pre process parameters
-            "sampling_time": self.sampling_time,
-            "window_size_peak": self.window_size_peak,
-            "max_mbp_segment": self.max_mbp_segment,
-            "min_mbp_segment": self.min_mbp_segment,
-            "treshold_peak": self.threshold_peak,
-            "leading_time": self.leading_time,
-            # Segmentations parameters
-            "prediction_window_length": self.prediction_window_length,
-            "observation_window_length": self.observation_window_length,
-            "segment_shift": self.segment_shift,
-            "segment_length ": self.segment_length,
-            "recovery_time": self.recovery_time,
-            "max_nan_segment": self.max_nan_segment,
-            # Label parameters
-            "min_time_ioh": self.min_time_ioh,
-            "min_value_ioh": self.min_time_ioh,
-            # Features parameters
-            "half_times": self.half_times,
-            # Split parameters
-            "tolerance_segment_split": self.tolerance_segment_split,
-            "tolerance_label_split": self.tolerance_label_split,
-            "n_max_iter_split": self.n_max_iter_split,
-        }
+        with open(self.parameters_file, mode="w", encoding="utf-8") as file:
+            json.dump(self.parameters, file, indent=2)
 
-        parameters_file = self.dataset_output_folder / PARAMETERS_FILENAME
-        with open(parameters_file, mode="w", encoding="utf-8") as file:
-            json.dump(parameters, file, indent=2)
+    def _must_be_built(self) -> bool:
+        # build the dataset if the dataset does not exist already.
+        if not self.dataset_output_folder.exists():
+            return True
+
+        with open(self.parameters_file, mode="r", encoding="utf-8") as file:
+            parameters = json.load(file)
+
+        # build the dataset if the existing dataset has been build with different
+        # parameters.
+        return self.parameters != parameters
 
     def build(self) -> None:
-
-        # check if the output folder already exists
-        if (self.dataset_output_folder / CASE_SUBFOLDER_NAME).exists():
-            print(f"Dataset output folder {self.dataset_output_folder} already exists")
+        if not self._must_be_built():
+            print(
+                f"The same dataset is already built with the same parameters in folder "
+                f"{self.dataset_output_folder}."
+            )
             print("Dataset build aborted")
             return
-        else:
-            (self.dataset_output_folder / CASE_SUBFOLDER_NAME).mkdir(parents=True)
+
+        self.cases_folder.mkdir(parents=True, exist_ok=True)
 
         print("Loading raw data...")
         raw_data, static_data = self._import_raw()
