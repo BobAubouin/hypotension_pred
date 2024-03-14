@@ -351,6 +351,7 @@ class DataBuilder:
             np.random.seed(n_iter)
             split = case_label_data.index.values
             np.random.shuffle(split)
+
             test = case_label_data.loc[split[: int(len(split) * TRAIN_RATIO)]]
             train = case_label_data.loc[split[int(len(split) * TRAIN_RATIO) :]]
 
@@ -430,9 +431,9 @@ class DataBuilder:
             # Features parameters
             "half_times": self.half_times,
             # Split parameters
-            "tol_segment_split": self.tolerance_segment_split,
-            "tol_label_split": self.tolerance_label_split,
-            "nb_max_iter_split": self.n_max_iter_split,
+            "tolerance_segment_split": self.tolerance_segment_split,
+            "tolerance_label_split": self.tolerance_label_split,
+            "n_max_iter_split": self.n_max_iter_split,
         }
 
         parameters_file = self.dataset_output_folder / PARAMETERS_FILENAME
