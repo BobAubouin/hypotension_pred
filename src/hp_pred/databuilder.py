@@ -42,6 +42,9 @@ MAX_MBP_SEGMENT = (
 )
 MAX_NAN_SEGMENT = 0.2  # maximum acceptable value for the nan in the segment (in %)
 RECOVERY_TIME = 10 * 60  # recovery time after the IOH (in seconds)
+TOL_SEGMENT_SPLIT = 0.01  # tolerance for the segment split
+TOL_LABEL_SPLIT = 0.005  # tolerance for the label split
+NB_MAX_ITER_SPLIT = 10000  # maximum number of iteration for the split
 
 
 class DataBuilder:
@@ -66,6 +69,9 @@ class DataBuilder:
         min_mbp_segment: int = MIN_MBP_SEGMENT,
         threshold_peak: int = THRESHOLD_PEAK,
         max_nan_segment: float = MAX_NAN_SEGMENT,
+        tol_segment_split: float = TOL_SEGMENT_SPLIT,
+        tol_label_split: float = TOL_LABEL_SPLIT,
+        nb_max_iter_split: int = NB_MAX_ITER_SPLIT,
     ) -> None:
         # Raw data
         raw_data_folder = Path(raw_data_folder_path)
@@ -82,10 +88,6 @@ class DataBuilder:
 
         # Generated dataset
         dataset_output_folder = Path(dataset_output_folder_path)
-        assert (
-            not dataset_output_folder.exists()
-        ), "Manually delete previous dataset first"
-        (dataset_output_folder / CASE_SUBFOLDER_NAME).mkdir(parents=True)
         self.dataset_output_folder = dataset_output_folder
         # End (Generated dataset)
 
@@ -119,6 +121,12 @@ class DataBuilder:
         self.min_time_ioh = min_time_ioh // sampling_time
         self.min_value_ioh = min_value_ioh
         # End (Labelize)
+
+        # Split
+        self.tol_segment_split = tol_segment_split
+        self.tol_label_split = tol_label_split
+        self.nb_max_iter_split = nb_max_iter_split
+        # End (Split)
 
     def _import_raw(self) -> tuple[pd.DataFrame, pd.DataFrame]:
         raw_data = pd.read_parquet(self.raw_data_folder)
@@ -262,7 +270,7 @@ class DataBuilder:
         segment_id = 0
         list_of_segments = []
         for i_time_start in indexes_range:
-            segment = case_data.iloc[i_time_start : i_time_start + self.segment_length]
+            segment = case_data.iloc[i_time_start: i_time_start + self.segment_length]
 
             start_time_previous_segment = max(0, i_time_start - self.recovery_time)
             previous_segment = case_data.iloc[start_time_previous_segment:i_time_start]
@@ -275,7 +283,7 @@ class DataBuilder:
             segment_features = self._create_segment_features(segment_observations)
 
             segment_predictions = segment.iloc[
-                (self.observation_window_length + self.leading_time) :
+                (self.observation_window_length + self.leading_time):
             ]
             segment_features["label"] = (
                 (segment_predictions.label.sum() > 0).astype(int),
@@ -306,45 +314,33 @@ class DataBuilder:
         case_df.to_parquet(parquet_file, index=False)
 
     def _create_meta(self, static_data: pd.DataFrame) -> None:
-        case_id_to_n_segments = (
+
+        case_data = (
             pd.read_parquet(self.dataset_output_folder / CASE_SUBFOLDER_NAME)
-            .groupby("caseid")
-            .apply(len)
-            .to_dict()
+            .groupby("caseid").agg(
+                segment_count=("label", "count"),
+                label_count=("label", "sum"),
+            )
         )
 
-        case_ids = list(case_id_to_n_segments)
+        case_ids = list(case_data.index)
         static_data = static_data[static_data.caseid.isin(case_ids)]
 
-        caseid_and_n_segments_sorted: list[tuple[int, int]] = sorted(
-            case_id_to_n_segments.items(),
-            key=lambda x: x[1],  # key 1 is n_samples
-            reverse=True,
-        )
-
-        train_case_id_to_n_segments: dict[int, int] = {}
-        test_case_id_to_n_segments: dict[int, int] = {}
-        train_n_segments = 0
-        test_n_segments = 0
-
-        all_n_segments = sum(case_id_to_n_segments.values())
-
-        for case_id, n_samples in caseid_and_n_segments_sorted:
-            if train_n_segments / all_n_segments <= TRAIN_RATIO:
-                train_case_id_to_n_segments[case_id] = n_samples
-                train_n_segments += n_samples
-            else:
-                test_case_id_to_n_segments[case_id] = n_samples
-                test_n_segments += n_samples
+        train_index = self._perform_split(case_data,
+                                          tol_segment=self.tol_segment_split,
+                                          tol_label=self.tol_label_split,
+                                          nb_max_iter=self.nb_max_iter_split
+                                          )
 
         case_ids_and_splits = [
             (
                 (case_id, "train")
-                if case_id in train_case_id_to_n_segments
+                if case_id in train_index
                 else (case_id, "test")
             )
-            for case_id in case_id_to_n_segments
+            for case_id in case_ids
         ]
+
         split = pd.DataFrame.from_records(
             data=case_ids_and_splits, columns=["caseid", "split"]
         ).astype({"split": "category"})
@@ -352,12 +348,48 @@ class DataBuilder:
 
         static_data.to_parquet(self.dataset_output_folder / "meta.parquet", index=False)
 
-        percent_train_samples = train_n_segments / all_n_segments
-        percent_test_samples = test_n_segments / all_n_segments
-        print(
-            f"There are {train_n_segments} ({percent_train_samples:.2%}) train samples, "
-            f"and {test_n_segments} {percent_test_samples:.2%} test samples."
-        )
+    def _perform_split(self, case_label_data: pd.DataFrame, tol_segment: float, tol_label: float, nb_max_iter: int) -> list:
+
+        nb_iter = 0
+        best_cost = np.inf
+        best_split = None
+        while True:
+            nb_iter += 1
+            if nb_iter > nb_max_iter:
+                break
+            np.random.seed(nb_iter)
+            split = case_label_data.index.values
+            np.random.shuffle(split)
+            test = case_label_data.loc[split[:int(len(split) * TRAIN_RATIO)]]
+            train = case_label_data.loc[split[int(len(split) * TRAIN_RATIO):]]
+
+            ratio_segment = train['segment_count'].sum() / case_label_data['segment_count'].sum()
+            train_ratio_label = train['label_count'].sum() / train['segment_count'].sum()
+            test_ratio_label = test['label_count'].sum() / test['segment_count'].sum()
+
+            cost = abs(ratio_segment - TRAIN_RATIO)/tol_segment + \
+                abs(train_ratio_label - test_ratio_label)/tol_label
+
+            if cost < best_cost:
+                best_cost = cost
+                best_iter = nb_iter
+
+            if (abs(ratio_segment - TRAIN_RATIO) < tol_segment) and (abs(train_ratio_label - test_ratio_label) < tol_label):
+                break
+
+        np.random.seed(best_iter)
+        split = case_label_data.index.values
+        np.random.shuffle(split)
+        train_index = split[:int(len(split) * TRAIN_RATIO)]
+
+        train = case_label_data.loc[split[:int(len(split) * TRAIN_RATIO)]]
+        test = case_label_data.loc[split[int(len(split) * TRAIN_RATIO):]]
+
+        print(f"Train : {train['segment_count'].sum() / case_label_data['segment_count'].sum()*100:.2f} % of segments, {train['label_count'].sum() / train['segment_count'].sum()*100:.2f} % of labels")
+        print(f"Test : {test['segment_count'].sum() / case_label_data['segment_count'].sum()*100:.2f} % of segments, {test['label_count'].sum() / test['segment_count'].sum()*100:.2f} % of labels")
+        print(f"Best cost : {best_cost:.2f} at iteration {best_iter}")
+
+        return train_index
 
     def _process_case(self, param) -> None:
         caseid, case_data = param
@@ -394,15 +426,26 @@ class DataBuilder:
             "min_value_ioh":  self.min_time_ioh,
             # Features parameters
             "half_times": self.half_times,
+            # Split parameters
+            "tol_segment_split": self.tol_segment_split,
+            "tol_label_split": self.tol_label_split,
+            "nb_max_iter_split": self.nb_max_iter_split,
         }
 
         parameters_file = self.dataset_output_folder / PARAMETERS_FILENAME
         with open(parameters_file, mode="w", encoding="utf-8") as file:
             json.dump(parameters, file, indent=2)
 
-
-
     def build(self) -> None:
+
+        # check if the output folder already exists
+        if (self.dataset_output_folder / CASE_SUBFOLDER_NAME).exists():
+            print(f"Dataset output folder {self.dataset_output_folder} already exists")
+            print("Dataset build aborted")
+            return
+        else:
+            (self.dataset_output_folder / CASE_SUBFOLDER_NAME).mkdir(parents=True)
+
         print("Loading raw data...")
         raw_data, static_data = self._import_raw()
 
@@ -415,5 +458,10 @@ class DataBuilder:
                 chunksize=1,
             )
 
+        self._dump_dataset_parameter()
+
+    def build_meta(self) -> None:
+
+        static_data = pd.read_parquet(self.static_data_file)
         self._create_meta(static_data)
         self._dump_dataset_parameter()

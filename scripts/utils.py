@@ -58,7 +58,7 @@ def stats_for_one_threshold(y_true, y_pred, threshold, label_id):
     true_positive = 0
     false_negative = 0
     for label, df_label in df.groupby('label_id'):
-        if np.isna(label):
+        if np.isnan(label):
             continue
 
         true_positive += df_label.y_pred.max()
