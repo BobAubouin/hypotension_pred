@@ -22,6 +22,7 @@ def main():
 
     export_folder = "./data/datasets/base_dataset"
     databuilder.build()
+    databuilder.build_meta()
 
 
 if __name__ == "__main__":
