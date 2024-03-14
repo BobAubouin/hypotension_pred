@@ -110,8 +110,8 @@ def bootstrap_test(y_true, y_pred, y_label_id, n_bootstraps=200, rng_seed=42):
 
         auc_, sensitivity_, specificity_, ppv_, npv_, sensitivity_ioh_, fpr_, tpr_, thr_ = get_all_stats(
             y_true[indices], y_pred[indices], y_label_id[indices])
-        sensitivity_list.append(sensitivity_ * 100)
-        specificity_list.append(specificity_ * 100)
+        sensitivity_list.append(sensitivity_)
+        specificity_list.append(specificity_)
         ppv_list.append(ppv_)
         npv_list.append(npv_)
 
