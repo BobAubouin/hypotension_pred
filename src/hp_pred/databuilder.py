@@ -343,13 +343,12 @@ class DataBuilder:
 
     def _perform_split(self, case_label_data: pd.DataFrame) -> list:
 
-        nb_iter = 0
+        n_iter = 0
         best_cost = np.inf
-        while True:
-            nb_iter += 1
-            if nb_iter > self.n_max_iter_split:
-                break
-            np.random.seed(nb_iter)
+        while n_iter < self.n_max_iter_split:
+            n_iter += 1
+
+            np.random.seed(n_iter)
             split = case_label_data.index.values
             np.random.shuffle(split)
             test = case_label_data.loc[split[: int(len(split) * TRAIN_RATIO)]]
@@ -370,7 +369,7 @@ class DataBuilder:
 
             if cost < best_cost:
                 best_cost = cost
-                best_iter = nb_iter
+                best_iter = n_iter
 
             if (abs(ratio_segment - TRAIN_RATIO) < self.tolerance_segment_split) and (
                 abs(train_ratio_label - test_ratio_label) < self.tolerance_label_split
