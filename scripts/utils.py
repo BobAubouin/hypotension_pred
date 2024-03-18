@@ -4,31 +4,44 @@ from sklearn.metrics import roc_auc_score
 from xgboost import XGBClassifier
 from sklearn.metrics import auc, roc_curve
 
+from optuna import Trial
+
 NUMBER_CV_FOLD = 3
+N_INTERPOLATION = 100
 
 
-def objective_xgboost(trial, data, feature_name, cv_split):
+def objective_xgboost(
+    trial: Trial,
+    data: pd.DataFrame,
+    feature_name: list[str],
+    cv_split: list[np.ndarray],
+) -> float:
     params = {
-        'max_depth': trial.suggest_int('max_depth', 1, 9),
-        'learning_rate': trial.suggest_float('learning_rate', 0.001, 0.1, log=True),
-        'n_estimators': trial.suggest_int('n_estimators', 50, 500),
-        'min_child_weight': trial.suggest_int('min_child_weight', 1, 10),
-        'gamma': trial.suggest_float('gamma', 1e-8, 1.0, log=True),
-        'subsample': trial.suggest_float('subsample', 0.6, 1.0),
-        'colsample_bytree': trial.suggest_float('colsample_bytree', 0.01, 1.0, log=True),
-        'reg_alpha': trial.suggest_float('reg_alpha', 1e-8, 1.0, log=True),
-        'reg_lambda': trial.suggest_float('reg_lambda', 1e-8, 1.0, log=True),
-        'eval_metric': 'auc',
-        'objective': 'binary:logistic',
-        'nthread': 8,
-        'scale_pos_weight': 15,
+        "max_depth": trial.suggest_int("max_depth", 1, 9),
+        "learning_rate": trial.suggest_float("learning_rate", 0.001, 0.1, log=True),
+        "n_estimators": trial.suggest_int("n_estimators", 50, 500),
+        "min_child_weight": trial.suggest_int("min_child_weight", 1, 10),
+        "gamma": trial.suggest_float("gamma", 1e-8, 1.0, log=True),
+        "subsample": trial.suggest_float("subsample", 0.6, 1.0),
+        "colsample_bytree": trial.suggest_float(
+            "colsample_bytree", 0.01, 1.0, log=True
+        ),
+        "reg_alpha": trial.suggest_float("reg_alpha", 1e-8, 1.0, log=True),
+        "reg_lambda": trial.suggest_float("reg_lambda", 1e-8, 1.0, log=True),
+        "eval_metric": "auc",
+        "objective": "binary:logistic",
+        "nthread": 8,
+        "scale_pos_weight": 15,
     }
+
     # separate training in 3 folds
-    auc_list = []
+    auc_scores = np.zeros(NUMBER_CV_FOLD)
     for i in range(NUMBER_CV_FOLD):
         # split the data
         test_caseid = cv_split[i]
-        train_caseid = np.concatenate([cv_split[j] for j in range(NUMBER_CV_FOLD) if j != i])
+        train_caseid = np.concatenate(
+            [cv_split[j] for j in range(NUMBER_CV_FOLD) if j != i]
+        )
         df_train = data[data.caseid.isin(train_caseid)]
         df_test = data[data.caseid.isin(test_caseid)]
 
@@ -45,19 +58,26 @@ def objective_xgboost(trial, data, feature_name, cv_split):
 
         # Evaluate predictions
         accuracy = roc_auc_score(y_test, y_pred)
-        auc_list.append(accuracy)
+        auc_scores[i] = accuracy
 
-    return np.mean(auc_list)
+    return auc_scores.mean()
 
 
-def stats_for_one_threshold(y_true, y_pred, threshold, label_id):
-    y_pred = (y_pred > threshold).astype(int)
-    df = pd.DataFrame({'y_true': y_true, 'y_pred': y_pred, 'label_id': label_id})
+def stats_for_one_threshold(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    threshold: float,
+    label_id: np.ndarray,
+) -> float:
+    y_pred_thresholded = (y_pred > threshold).astype(int)
+    df = pd.DataFrame(
+        {"y_true": y_true, "y_pred": y_pred_thresholded, "label_id": label_id}
+    )
 
     true_positive = 0
     false_negative = 0
-    for label, df_label in df.groupby('label_id'):
-        if np.isnan(label):
+    for label, df_label in df.groupby("label_id"):
+        if pd.isna(label):
             continue
 
         true_positive += df_label.y_pred.max()
@@ -67,36 +87,68 @@ def stats_for_one_threshold(y_true, y_pred, threshold, label_id):
     return sensitivity
 
 
-def get_all_stats(y_true, y_pred, label_id):
+def get_all_stats(
+    y_true: np.ndarray, y_pred: np.ndarray, label_id: np.ndarray
+) -> tuple[
+    float, float, float, float, float, float, np.ndarray, np.ndarray, np.ndarray
+]:
 
     fpr, tpr, thr = roc_curve(y_true, y_pred)
-    auc_ = auc(fpr, tpr)
+    auc_ = float(auc(fpr, tpr))
     gmean = np.sqrt(tpr * (1 - fpr))
-    id_thresh_opt = np.argmax(gmean)
-    sensitivity = tpr[id_thresh_opt] * 100
-    specificity = (1 - fpr[id_thresh_opt]) * 100
-    prevalence = np.mean(y_true)
-    ppv = 100 * tpr[id_thresh_opt] * prevalence / \
-        (tpr[id_thresh_opt] * prevalence + fpr[id_thresh_opt] * (1 - prevalence))
-    npv = 100 * (1 - fpr[id_thresh_opt]) * (1 - prevalence) / ((1 - tpr[id_thresh_opt])
-                                                               * prevalence + (1 - fpr[id_thresh_opt]) * (1 - prevalence))
+    id_thresh_opt = int(gmean.argmax())
 
-    sensitivity_ioh = stats_for_one_threshold(y_true, y_pred, thr[id_thresh_opt], label_id)
+    sensitivity: float = tpr[id_thresh_opt] * 100
+    specificity: float = (1 - fpr[id_thresh_opt]) * 100
+
+    prevalence = y_true.mean()
+    ppv: float = (
+        100
+        * tpr[id_thresh_opt]
+        * prevalence
+        / (tpr[id_thresh_opt] * prevalence + fpr[id_thresh_opt] * (1 - prevalence))
+    )
+    npv: float = (
+        100
+        * (1 - fpr[id_thresh_opt])
+        * (1 - prevalence)
+        / (
+            (1 - tpr[id_thresh_opt]) * prevalence
+            + (1 - fpr[id_thresh_opt]) * (1 - prevalence)
+        )
+    )
+
+    sensitivity_ioh = stats_for_one_threshold(
+        y_true, y_pred, thr[id_thresh_opt], label_id
+    )
 
     return auc_, sensitivity, specificity, ppv, npv, sensitivity_ioh, fpr, tpr, thr
 
 
-def bootstrap_test(y_true, y_pred, y_label_id, n_bootstraps=200, rng_seed=42):
+def bootstrap_test(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    y_label_id: np.ndarray,
+    n_bootstraps: int = 200,
+    rng_seed: int = 42,
+) -> tuple[pd.DataFrame, np.ndarray]:
 
     rng = np.random.RandomState(rng_seed)
-    fpr = np.linspace(0, 1, 100)
-
-    tpr_list, auc_list, thr_list = [], [], []
-    sensitivity_list, specificity_list, ppv_list, npv_list, sensi_ioh = [], [], [], [], []
 
     # for each subgoup of data, create a regressor and evaluate it
     n_bootstraps = 200
-    bootstrapped_scores = []
+
+    aucs = np.zeros(n_bootstraps, dtype=float)
+    tprs_interpolated = np.zeros((n_bootstraps, N_INTERPOLATION), dtype=float)
+    thrs_interpolated = np.zeros((n_bootstraps, N_INTERPOLATION), dtype=int)
+    xs_interpolation = np.linspace(0, 1, N_INTERPOLATION)
+
+    sensitivities = np.zeros(n_bootstraps, dtype=float)
+    specificities = np.zeros(n_bootstraps, dtype=float)
+    ioh_sensitivites = np.zeros(n_bootstraps, dtype=float)
+
+    ppvs = np.zeros(n_bootstraps, dtype=float)
+    npvs = np.zeros(n_bootstraps, dtype=float)
 
     i_bootstrap = 0
     while i_bootstrap < n_bootstraps:
@@ -106,68 +158,79 @@ def bootstrap_test(y_true, y_pred, y_label_id, n_bootstraps=200, rng_seed=42):
             # We need at least one positive and one negative sample for ROC AUC
             # to be defined: reject the sample
             continue
+
+        (
+            auc,
+            sensitivity,
+            specificity,
+            ppv,
+            npv,
+            ioh_sensitivity,
+            fpr,
+            tpr,
+            thr,
+        ) = get_all_stats(y_true[indices], y_pred[indices], y_label_id[indices])
+
+        aucs[i_bootstrap] = auc
+        sensitivities[i_bootstrap] = sensitivity
+        specificities[i_bootstrap] = specificity
+        ppvs[i_bootstrap] = ppv
+        npvs[i_bootstrap] = npv
+        ioh_sensitivites[i_bootstrap] = ioh_sensitivity
+
+        tprs_interpolated[i_bootstrap] = np.interp(xs_interpolation, fpr, tpr)
+        thrs_interpolated[i_bootstrap] = np.interp(xs_interpolation, fpr, thr)
+
         i_bootstrap += 1
 
-        auc_, sensitivity_, specificity_, ppv_, npv_, sensitivity_ioh_, fpr_, tpr_, thr_ = get_all_stats(
-            y_true[indices], y_pred[indices], y_label_id[indices])
-        sensitivity_list.append(sensitivity_)
-        specificity_list.append(specificity_)
-        ppv_list.append(ppv_)
-        npv_list.append(npv_)
-
-        tpr_list.append(np.interp(np.linspace(0, 1, 100), fpr_, tpr_))
-        thr_list.append(np.interp(np.linspace(0, 1, 100), fpr_, thr_))
-        auc_list.append(auc_)
-        sensi_ioh.append(sensitivity_ioh_)
-
-    tpr_mean = np.mean(tpr_list, axis=0)
-    tpr_std = np.std(tpr_list, axis=0)
-    thr_mean = np.mean(thr_list, axis=0)
-    sensi_mean = np.mean(sensitivity_list)
-    speci_mean = np.mean(specificity_list)
-    ppv_mean = np.mean(ppv_list)
-    npv_mean = np.mean(npv_list)
-    sensi_std = np.std(sensitivity_list)
-    speci_std = np.std(specificity_list)
-    ppv_std = np.std(ppv_list)
-    npv_std = np.std(npv_list)
-    auc_mean = np.mean(auc_list)
-    auc_std = np.std(auc_list)
-    sensi_ioh_mean = np.mean(sensi_ioh)
-    sensi_ioh_std = np.std(sensi_ioh)
+    tpr_mean, tpr_std = tprs_interpolated.mean(0), tprs_interpolated.std(0)
+    thr_mean = thrs_interpolated.mean(0)
+    ppv_mean, ppv_std = ppvs.mean(), ppvs.std()
+    npv_mean, npv_std = npvs.mean(), npvs.std()
+    auc_mean, auc_std = aucs.mean(), aucs.std()
+    sensitivity_mean, sensitivity_std = sensitivities.mean(), sensitivities.std()
+    specificity_mean, specificity_std = specificities.mean(), specificities.std()
+    ioh_sensitivity_mean, ioh_sensitivity_std = (
+        ioh_sensitivites.mean(),
+        ioh_sensitivites.std(),
+    )
 
     df = pd.DataFrame(
         {
-            "fpr": fpr,
+            "fpr": xs_interpolation,
             "tpr": tpr_mean,
             "tpr_std": tpr_std,
             "threshold": thr_mean,
             "auc": auc_mean,
             "auc_std": auc_std,
-            "sensitivity": sensi_mean,
-            "sensitivity_std": sensi_std,
-            "specificity": speci_mean,
-            "specificity_std": speci_std,
+            "sensitivity": sensitivity_mean,
+            "sensitivity_std": sensitivity_std,
+            "specificity": specificity_mean,
+            "specificity_std": specificity_std,
+            "ioh_sensitivity": ioh_sensitivity_mean,
+            "ioh_sensitivity_std": ioh_sensitivity_std,
             "ppv": ppv_mean,
             "ppv_std": ppv_std,
             "npv": npv_mean,
             "npv_std": npv_std,
-            "sensitivity_ioh": sensi_ioh_mean,
-            "sensitivity_ioh_std": sensi_ioh_std,
         }
     )
-    return df, tpr_list
+    return df, tprs_interpolated
 
 
-def create_balanced_cv(case_label_data: pd.DataFrame,
-                       n_splits: int = 3,
-                       tol_split: float = 0.01,
-                       tol_label: float = 0.01,
-                       nb_max_iter: int = 1000,
-                       ) -> list:
+# TODO: Cost solver must be refactored with DatasetBuilder._perform_split
+def create_balanced_cv(
+    case_label_data: pd.DataFrame,
+    n_splits: int = 3,
+    tol_split: float = 0.01,
+    tol_label: float = 0.01,
+    nb_max_iter: int = 1000,
+) -> list[np.ndarray]:
 
     ratio_split = 1 / n_splits
-    ratio_label = case_label_data['label_count'].sum() / case_label_data['segment_count'].sum()
+    ratio_label = (
+        case_label_data["label_count"].sum() / case_label_data["segment_count"].sum()
+    )
     nb_iter = 0
     best_cost = np.inf
     best_split = None
@@ -183,18 +246,30 @@ def create_balanced_cv(case_label_data: pd.DataFrame,
 
         split_list = [case_label_data.loc[index] for index in index_list]
 
-        ratio_segment_list = [split['segment_count'].sum() / case_label_data['segment_count'].sum()
-                              for split in split_list]
-        ratio_label_list = [split['label_count'].sum() / split['segment_count'].sum() for split in split_list]
+        ratio_segment_list = [
+            split["segment_count"].sum() / case_label_data["segment_count"].sum()
+            for split in split_list
+        ]
+        ratio_label_list = [
+            split["label_count"].sum() / split["segment_count"].sum()
+            for split in split_list
+        ]
 
-        cost = sum([abs(ratio - ratio)/tol_split for ratio in ratio_segment_list]) + \
-            sum([abs(ratio - ratio_label)/tol_label for ratio in ratio_label_list])
+        cost = sum(
+            [abs(ratio - ratio) / tol_split for ratio in ratio_segment_list]
+        ) + sum([abs(ratio - ratio_label) / tol_label for ratio in ratio_label_list])
 
         if cost < best_cost:
             best_cost = cost
             best_split = nb_iter
 
-        if (max([abs(ratio - ratio)/tol_split for ratio in ratio_segment_list]) < tol_split) and (max([abs(ratio - ratio_label)/tol_label for ratio in ratio_label_list]) < tol_label):
+        if (
+            max([abs(ratio - ratio) / tol_split for ratio in ratio_segment_list])
+            < tol_split
+        ) and (
+            max([abs(ratio - ratio_label) / tol_label for ratio in ratio_label_list])
+            < tol_label
+        ):
             break
 
     np.random.seed(best_split)
@@ -203,13 +278,22 @@ def create_balanced_cv(case_label_data: pd.DataFrame,
     split_list = []
     index_list = []
     for i in range(n_splits):
-        index_list.append(split[int(len(split) * i * ratio_split):int(len(split) * (i + 1) * ratio_split)])
+        index_list.append(
+            split[
+                int(len(split) * i * ratio_split) : int(
+                    len(split) * (i + 1) * ratio_split
+                )
+            ]
+        )
 
     split_list = [case_label_data.loc[index] for index in index_list]
 
     # print the result of the split
     for i, split in enumerate(split_list):
         print(
-            f"split {i} : {split['segment_count'].sum()} segments, {split['label_count'].sum()} labels, {split['label_count'].sum() / split['segment_count'].sum()} ratio label")
+            f"split {i} : {split['segment_count'].sum():,d} segments, "
+            f"{split['label_count'].sum():,d} labels, "
+            f"{split['label_count'].sum() / split['segment_count'].sum():.2%} ratio label"
+        )
 
     return index_list
