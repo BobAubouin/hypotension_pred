@@ -16,6 +16,19 @@ def objective_xgboost(
     feature_name: list[str],
     cv_split: list[np.ndarray],
 ) -> float:
+    """
+    Calculate the mean AUC score for XGBoost model using Optuna hyperparameter optimization.
+
+    Args:
+        trial (Trial): Optuna trial object for hyperparameter optimization.
+        data (pd.DataFrame): Input data for training and testing.
+        feature_name (list[str]): List of feature names.
+        cv_split (list[np.ndarray]): List of arrays containing indices for cross-validation splits.
+
+    Returns:
+        float: Mean AUC score of the XGBoost model.
+
+    """
     params = {
         "max_depth": trial.suggest_int("max_depth", 1, 9),
         "learning_rate": trial.suggest_float("learning_rate", 0.001, 0.1, log=True),
@@ -69,6 +82,18 @@ def stats_for_one_threshold(
     threshold: float,
     label_id: np.ndarray,
 ) -> float:
+    """
+    Calculate sensitivity for a given threshold.
+
+    Args:
+        y_true (np.ndarray): Array of true labels.
+        y_pred (np.ndarray): Array of predicted probabilities.
+        threshold (float): Threshold value for classification.
+        label_id (np.ndarray): Array of label IDs.
+
+    Returns:
+        float: Sensitivity value.
+    """
     y_pred_thresholded = (y_pred > threshold).astype(int)
     df = pd.DataFrame(
         {"y_true": y_true, "y_pred": y_pred_thresholded, "label_id": label_id}
@@ -92,7 +117,26 @@ def get_all_stats(
 ) -> tuple[
     float, float, float, float, float, float, np.ndarray, np.ndarray, np.ndarray
 ]:
+    """
+    Calculate various statistics for binary classification.
 
+    Args:
+        y_true (np.ndarray): True labels.
+        y_pred (np.ndarray): Predicted probabilities.
+        label_id (np.ndarray): Label IDs.
+
+    Returns:
+        tuple: A tuple containing the following statistics:
+            - auc_ (float): Area under the ROC curve.
+            - sensitivity (float): Sensitivity.
+            - specificity (float): Specificity.
+            - ppv (float): Positive predictive value.
+            - npv (float): Negative predictive value.
+            - sensitivity_ioh (float): Sensitivity for one threshold.
+            - fpr (np.ndarray): False positive rates.
+            - tpr (np.ndarray): True positive rates.
+            - thr (np.ndarray): Thresholds.
+    """
     fpr, tpr, thr = roc_curve(y_true, y_pred)
     auc_ = float(auc(fpr, tpr))
     gmean = np.sqrt(tpr * (1 - fpr))
@@ -123,6 +167,30 @@ def get_all_stats(
     )
 
     return auc_, sensitivity, specificity, ppv, npv, sensitivity_ioh, fpr, tpr, thr
+
+
+def bootstrap_test(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    y_label_id: np.ndarray,
+    n_bootstraps: int = 200,
+    rng_seed: int = 42,
+) -> tuple[pd.DataFrame, np.ndarray]:
+    """
+    Perform bootstrap testing for evaluating a regression model's performance.
+
+    Args:
+        y_true (np.ndarray): True labels.
+        y_pred (np.ndarray): Predicted labels.
+        y_label_id (np.ndarray): Label IDs.
+        n_bootstraps (int, optional): Number of bootstrap iterations. Defaults to 200.
+        rng_seed (int, optional): Seed for the random number generator. Defaults to 42.
+
+    Returns:
+        tuple[pd.DataFrame, np.ndarray]: A tuple containing the DataFrame with evaluation metrics and the interpolated TPR values.
+    """
+    # Function implementation goes here
+    pass
 
 
 def bootstrap_test(
@@ -226,6 +294,19 @@ def create_balanced_cv(
     tol_label: float = 0.01,
     nb_max_iter: int = 1000,
 ) -> list[np.ndarray]:
+    """
+    Create a balanced cross-validation split based on the given case-label data.
+
+    Args:
+        case_label_data (pd.DataFrame): DataFrame containing case-label data.
+        n_splits (int, optional): Number of splits to create. Defaults to 3.
+        tol_split (float, optional): Tolerance for segment count ratio. Defaults to 0.01.
+        tol_label (float, optional): Tolerance for label count ratio. Defaults to 0.01.
+        nb_max_iter (int, optional): Maximum number of iterations. Defaults to 1000.
+
+    Returns:
+        list[np.ndarray]: List of index arrays representing the cross-validation splits.
+    """
 
     ratio_split = 1 / n_splits
     ratio_label = (
@@ -280,7 +361,7 @@ def create_balanced_cv(
     for i in range(n_splits):
         index_list.append(
             split[
-                int(len(split) * i * ratio_split) : int(
+                int(len(split) * i * ratio_split): int(
                     len(split) * (i + 1) * ratio_split
                 )
             ]
