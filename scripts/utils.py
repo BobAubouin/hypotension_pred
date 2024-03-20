@@ -208,7 +208,7 @@ def bootstrap_test(
 
     aucs = np.zeros(n_bootstraps, dtype=float)
     tprs_interpolated = np.zeros((n_bootstraps, N_INTERPOLATION), dtype=float)
-    thrs_interpolated = np.zeros((n_bootstraps, N_INTERPOLATION), dtype=int)
+    thrs_interpolated = np.zeros((n_bootstraps, N_INTERPOLATION), dtype=float)
     xs_interpolation = np.linspace(0, 1, N_INTERPOLATION)
 
     sensitivities = np.zeros(n_bootstraps, dtype=float)
@@ -247,7 +247,7 @@ def bootstrap_test(
         ioh_sensitivites[i_bootstrap] = ioh_sensitivity
 
         tprs_interpolated[i_bootstrap] = np.interp(xs_interpolation, fpr, tpr)
-        thrs_interpolated[i_bootstrap] = np.interp(xs_interpolation, fpr, thr)
+        thrs_interpolated[i_bootstrap] = np.interp(xs_interpolation, fpr, np.clip(thr, -100, 100))
 
         i_bootstrap += 1
 
