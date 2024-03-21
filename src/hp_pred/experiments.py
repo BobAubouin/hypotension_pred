@@ -1,9 +1,11 @@
+from pathlib import Path
+
 import pandas as pd
 import numpy as np
 from sklearn.metrics import roc_auc_score
 from xgboost import XGBClassifier
 from sklearn.metrics import auc, roc_curve
-
+from hp_pred.databuilder import build_databuilder
 from optuna import Trial
 
 NUMBER_CV_FOLD = 3
@@ -167,6 +169,7 @@ def get_all_stats(
     )
 
     return auc_, sensitivity, specificity, ppv, npv, sensitivity_ioh, fpr, tpr, thr
+
 
 def bootstrap_test(
     y_true: np.ndarray,
@@ -366,3 +369,25 @@ def create_balanced_cv(
         )
 
     return index_list
+
+
+def load_labelized_cases(
+    dataset_path: Path,
+    caseid: int,
+):
+    """
+    Labelize the IOH event of a single case.
+    Args:
+        databuilder (Path): Path of the dataset.
+        caseid (int): Case ID.
+    Returns:
+        pd.DataFrame: Labeled case data.
+    """
+    databuilder = build_databuilder(dataset_path)
+    databuilder.cases_folder = dataset_path / "cases" / f"case{caseid}.parquet"
+    case_data, _ = databuilder._import_raw()
+    preprocess_case = databuilder._preprocess_case(case_data)
+    label, _ = databuilder._labelize_case(preprocess_case)
+    preprocess_case["label"] = label
+
+    return preprocess_case

@@ -52,20 +52,19 @@ class DataBuilder:
         self.parameters_file = self.dataset_output_folder / PARAMETERS_FILENAME
         self.parameters: dict = {
             # Data description
-            "signal_names": self.signal_features_names,
-            "static_names": self.static_data_names,
+            "signal_features_names": self.signal_features_names,
+            "static_data_names": self.static_data_names,
             # Pre process parameters
             "sampling_time": self.sampling_time,
             "window_size_peak": self.window_size_peak,
             "max_mbp_segment": self.max_mbp_segment,
             "min_mbp_segment": self.min_mbp_segment,
-            "treshold_peak": self.threshold_peak,
+            "threshold_peak": self.threshold_peak,
             # Segmentations parameters
             "prediction_window_length": self.prediction_window_length,
             "leading_time": self.leading_time,
             "observation_window_length": self.observation_window_length,
             "segment_shift": self.segment_shift,
-            "segment_length ": self.segment_length,
             "recovery_time": self.recovery_time,
             "max_nan_segment": self.max_nan_segment,
             # Label parameters
@@ -77,6 +76,10 @@ class DataBuilder:
             "tolerance_segment_split": self.tolerance_segment_split,
             "tolerance_label_split": self.tolerance_label_split,
             "n_max_iter_split": self.n_max_iter_split,
+            # folder information
+            "raw_data_folder_path": str(self.raw_data_folder),
+            "static_data_path": str(self.static_data_file),
+            "dataset_output_folder_path": str(self.dataset_output_folder),
         }
 
     def __init__(
@@ -168,6 +171,7 @@ class DataBuilder:
         raw_data = raw_data[self.signal_features_names + ["caseid", "Time"]]
 
         static_data = pd.read_parquet(self.static_data_file)[self.static_data_names]
+        static_data = static_data[static_data.caseid.isin(raw_data.caseid.unique())]
         assert len(raw_data.caseid.unique()) == len(static_data.caseid.unique())
 
         raw_data.Time = pd.to_timedelta(raw_data.Time, unit="s")
@@ -304,7 +308,7 @@ class DataBuilder:
         segment_id = 0
         list_of_segments = []
         for i_time_start in indexes_range:
-            segment = case_data.iloc[i_time_start : i_time_start + self.segment_length]
+            segment = case_data.iloc[i_time_start: i_time_start + self.segment_length]
 
             start_time_previous_segment = max(0, i_time_start - self.recovery_time)
             previous_segment = case_data.iloc[start_time_previous_segment:i_time_start]
@@ -317,7 +321,7 @@ class DataBuilder:
             segment_features = self._create_segment_features(segment_observations)
 
             segment_predictions = segment.iloc[
-                (self.observation_window_length + self.leading_time) :
+                (self.observation_window_length + self.leading_time):
             ]
             segment_features["label"] = (
                 (segment_predictions.label.sum() > 0).astype(int),
@@ -387,7 +391,7 @@ class DataBuilder:
             np.random.shuffle(split)
 
             test = case_label_data.loc[split[: int(len(split) * TRAIN_RATIO)]]
-            train = case_label_data.loc[split[int(len(split) * TRAIN_RATIO) :]]
+            train = case_label_data.loc[split[int(len(split) * TRAIN_RATIO):]]
 
             ratio_segment = (
                 train["segment_count"].sum() / case_label_data["segment_count"].sum()
@@ -417,7 +421,7 @@ class DataBuilder:
         train_index = split[: int(len(split) * TRAIN_RATIO)]
 
         train = case_label_data.loc[split[: int(len(split) * TRAIN_RATIO)]]
-        test = case_label_data.loc[split[int(len(split) * TRAIN_RATIO) :]]
+        test = case_label_data.loc[split[int(len(split) * TRAIN_RATIO):]]
 
         print(
             f"Train : {train['segment_count'].sum() / case_label_data['segment_count'].sum()*100:.2f} % of segments, {train['label_count'].sum() / train['segment_count'].sum()*100:.2f} % of labels"
@@ -486,3 +490,11 @@ class DataBuilder:
         static_data = pd.read_parquet(self.static_data_file)
         self._create_meta(static_data)
         self._dump_dataset_parameter()
+
+
+def build_databuilder(dataset_folder: Path) -> DataBuilder:
+    filename = dataset_folder / PARAMETERS_FILENAME
+    with open(filename, mode="r", encoding="utf-8") as file:
+        parameters = json.load(file)
+
+    return DataBuilder(**parameters)
