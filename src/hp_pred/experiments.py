@@ -168,7 +168,6 @@ def get_all_stats(
 
     return auc_, sensitivity, specificity, ppv, npv, sensitivity_ioh, fpr, tpr, thr
 
-
 def bootstrap_test(
     y_true: np.ndarray,
     y_pred: np.ndarray,
@@ -189,17 +188,6 @@ def bootstrap_test(
     Returns:
         tuple[pd.DataFrame, np.ndarray]: A tuple containing the DataFrame with evaluation metrics and the interpolated TPR values.
     """
-    # Function implementation goes here
-    pass
-
-
-def bootstrap_test(
-    y_true: np.ndarray,
-    y_pred: np.ndarray,
-    y_label_id: np.ndarray,
-    n_bootstraps: int = 200,
-    rng_seed: int = 42,
-) -> tuple[pd.DataFrame, np.ndarray]:
 
     rng = np.random.RandomState(rng_seed)
 
