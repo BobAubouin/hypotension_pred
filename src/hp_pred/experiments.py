@@ -277,100 +277,6 @@ def bootstrap_test(
     return df, tprs_interpolated
 
 
-# TODO: Cost solver must be refactored with DatasetBuilder._perform_split
-def create_balanced_cv(
-    case_label_data: pd.DataFrame,
-    n_splits: int = 3,
-    tol_split: float = 0.01,
-    tol_label: float = 0.01,
-    nb_max_iter: int = 1000,
-) -> list[np.ndarray]:
-    """
-    Create a balanced cross-validation split based on the given case-label data.
-
-    Args:
-        case_label_data (pd.DataFrame): DataFrame containing case-label data.
-        n_splits (int, optional): Number of splits to create. Defaults to 3.
-        tol_split (float, optional): Tolerance for segment count ratio. Defaults to 0.01.
-        tol_label (float, optional): Tolerance for label count ratio. Defaults to 0.01.
-        nb_max_iter (int, optional): Maximum number of iterations. Defaults to 1000.
-
-    Returns:
-        list[np.ndarray]: List of index arrays representing the cross-validation splits.
-    """
-
-    ratio_split = 1 / n_splits
-    ratio_label = (
-        case_label_data["label_count"].sum() / case_label_data["segment_count"].sum()
-    )
-    nb_iter = 0
-    best_cost = np.inf
-    best_split = None
-    while True:
-        nb_iter += 1
-        if nb_iter > nb_max_iter:
-            break
-        np.random.seed(nb_iter)
-        split = case_label_data.index.values
-        np.random.shuffle(split)
-
-        index_list = np.array_split(split, n_splits)
-
-        split_list = [case_label_data.loc[index] for index in index_list]
-
-        ratio_segment_list = [
-            split["segment_count"].sum() / case_label_data["segment_count"].sum()
-            for split in split_list
-        ]
-        ratio_label_list = [
-            split["label_count"].sum() / split["segment_count"].sum()
-            for split in split_list
-        ]
-
-        cost = sum(
-            [abs(ratio - ratio) / tol_split for ratio in ratio_segment_list]
-        ) + sum([abs(ratio - ratio_label) / tol_label for ratio in ratio_label_list])
-
-        if cost < best_cost:
-            best_cost = cost
-            best_split = nb_iter
-
-        if (
-            max([abs(ratio - ratio) / tol_split for ratio in ratio_segment_list])
-            < tol_split
-        ) and (
-            max([abs(ratio - ratio_label) / tol_label for ratio in ratio_label_list])
-            < tol_label
-        ):
-            break
-
-    np.random.seed(best_split)
-    split = case_label_data.index.values
-    np.random.shuffle(split)
-    split_list = []
-    index_list = []
-    for i in range(n_splits):
-        index_list.append(
-            split[
-                int(len(split) * i * ratio_split): int(
-                    len(split) * (i + 1) * ratio_split
-                )
-            ]
-        )
-
-    split_list = [case_label_data.loc[index] for index in index_list]
-
-    # print the result of the split
-    for i, split in enumerate(split_list):
-        print(
-            f"split {i} : {split['segment_count'].sum():,d} segments, "
-            f"{split['label_count'].sum():,d} labels, "
-            f"{split['label_count'].sum() / split['segment_count'].sum():.2%} ratio label"
-        )
-
-    return index_list
-
-
 def load_labelized_cases(
     dataset_path: Path,
     caseid: int,
@@ -384,10 +290,11 @@ def load_labelized_cases(
         pd.DataFrame: Labeled case data.
     """
     databuilder = build_databuilder(dataset_path)
-    databuilder.cases_folder = dataset_path / "cases" / f"case{caseid}.parquet"
+    databuilder.raw_data_folder = databuilder.raw_data_folder / f"case-{caseid:04d}.parquet"
     case_data, _ = databuilder._import_raw()
-    preprocess_case = databuilder._preprocess_case(case_data)
-    label, _ = databuilder._labelize_case(preprocess_case)
+    case_data = case_data.reset_index("caseid", drop=True)
+    preprocess_case = databuilder._preprocess(case_data)
+    label, _ = databuilder._labelize(preprocess_case)
     preprocess_case["label"] = label
 
     return preprocess_case
