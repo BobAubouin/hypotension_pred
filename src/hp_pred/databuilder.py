@@ -1,11 +1,18 @@
-import multiprocessing as mp
 import json
+import multiprocessing as mp
 from functools import reduce
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from tqdm.contrib.concurrent import process_map
+
+from hp_pred.split import (
+    compute_ratio_label,
+    compute_ratio_segment,
+    create_balanced_split,
+    create_cv_balanced_split,
+)
 
 RAW_FEATURES_NAME_TO_NEW_NAME = {
     "Solar8000/ART_MBP": "mbp",
@@ -20,9 +27,6 @@ RAW_FEATURES_NAME_TO_NEW_NAME = {
 }
 DEVICE_NAME_TO_SAMPLING_RATE = {"mac": 7, "pp_ct": 1}
 SOLAR_SAMPLING_RATE = 2
-
-# Ratio of train samples (segments) in percent
-TRAIN_RATIO = 0.7
 
 CASE_SUBFOLDER_NAME = "cases"
 PARAMETERS_FILENAME = "DatasetBuilder_parameters.json"
@@ -56,22 +60,26 @@ class DataBuilder:
             "static_data_names": self.static_data_names,
             # Pre process parameters
             "sampling_time": self.sampling_time,
-            "window_size_peak": self.window_size_peak*self.sampling_time,
+            "window_size_peak": self.window_size_peak * self.sampling_time,
             "max_mbp_segment": self.max_mbp_segment,
             "min_mbp_segment": self.min_mbp_segment,
             "threshold_peak": self.threshold_peak,
             # Segmentations parameters
-            "prediction_window_length": self.prediction_window_length*self.sampling_time,
-            "leading_time": self.leading_time*self.sampling_time,
-            "observation_window_length": self.observation_window_length*self.sampling_time,
-            "segment_shift": self.segment_shift*self.sampling_time,
-            "recovery_time": self.recovery_time*self.sampling_time,
+            "prediction_window_length": self.prediction_window_length
+            * self.sampling_time,
+            "leading_time": self.leading_time * self.sampling_time,
+            "observation_window_length": self.observation_window_length
+            * self.sampling_time,
+            "segment_shift": self.segment_shift * self.sampling_time,
+            "recovery_time": self.recovery_time * self.sampling_time,
             "max_nan_segment": self.max_nan_segment,
             # Label parameters
-            "min_time_ioh": self.min_time_ioh*self.sampling_time,
+            "min_time_ioh": self.min_time_ioh * self.sampling_time,
             "min_value_ioh": self.min_value_ioh,
             # Features parameters
-            "half_times": [half_time // self.sampling_time for half_time in self.half_times],
+            "half_times": [
+                half_time // self.sampling_time for half_time in self.half_times
+            ],
             # Split parameters
             "tolerance_segment_split": self.tolerance_segment_split,
             "tolerance_label_split": self.tolerance_label_split,
@@ -312,7 +320,7 @@ class DataBuilder:
         segment_id = 0
         list_of_segments = []
         for i_time_start in indexes_range:
-            segment = case_data.iloc[i_time_start: i_time_start + self.segment_length]
+            segment = case_data.iloc[i_time_start : i_time_start + self.segment_length]
 
             start_time_previous_segment = max(0, i_time_start - self.recovery_time)
             previous_segment = case_data.iloc[start_time_previous_segment:i_time_start]
@@ -325,7 +333,7 @@ class DataBuilder:
             segment_features = self._create_segment_features(segment_observations)
 
             segment_predictions = segment.iloc[
-                (self.observation_window_length + self.leading_time):
+                (self.observation_window_length + self.leading_time) :
             ]
             segment_features["label"] = (
                 (segment_predictions.label.sum() > 0).astype(int),
@@ -352,7 +360,9 @@ class DataBuilder:
             return
         case_df = pd.concat(list_of_segments, axis=0, ignore_index=True)
 
-        case_df.label_id = case_df.label_id.astype(str) + "_" + case_df.caseid.astype(str)
+        case_df.label_id = (
+            case_df.label_id.astype(str) + "_" + case_df.caseid.astype(str)
+        )
 
         filename = f"case{case_id}.parquet"
         parquet_file = self.cases_folder / filename
@@ -360,7 +370,11 @@ class DataBuilder:
 
     def _create_meta(self, static_data: pd.DataFrame) -> None:
 
-        case_data = (
+        # Index: case ID
+        # Value:
+        #  - segment_count: number of segment of the case IDs
+        #  - label_count: number of positive of the case IDs
+        label_stats = (
             pd.read_parquet(self.cases_folder)
             .groupby("caseid")
             .agg(
@@ -369,12 +383,16 @@ class DataBuilder:
             )
         )
 
-        case_ids = list(case_data.index)
+        case_ids = list(label_stats.index)
         static_data = static_data[static_data.caseid.isin(case_ids)]
 
-        train_index, cv_split_list = self._perform_split(case_data)
+        train_index, cv_split_list = self._perform_split(label_stats)
 
-        case_ids_and_splits = [(case_id, "test", "test") for case_id in case_ids if case_id not in train_index]
+        case_ids_and_splits = [
+            (case_id, "test", "test")
+            for case_id in case_ids
+            if case_id not in train_index
+        ]
         for i, split in enumerate(cv_split_list):
             case_ids_and_splits += [
                 (case_id, "train", f"cv_{i}") for case_id in split.index
@@ -387,143 +405,63 @@ class DataBuilder:
 
         static_data.to_parquet(self.dataset_output_folder / "meta.parquet", index=False)
 
-    def _perform_split(self, case_label_data: pd.DataFrame) -> tuple[list, list]:
+    def _perform_split(self, label_stats: pd.DataFrame) -> tuple[list[int], list[pd.DataFrame]]:
         """Genrate a list of index for the train set. And for the cross-validation set.
 
         The split is done in order to have the same ratio of segments and labels in the train and test set. The CV split is also don in a balance manner. Parameters of the split are defined in the DatasetBuilder object.
 
         Parameters
         ----------
-        case_label_data : pd.DataFrame
-            Dataframe including the number of segments and labels for each case.
+        label_stats : pd.DataFrame
+            Index by case IDs, it has "segment_count" and "label_count" columns:
+              - segment_count: number of segment of the case IDs
+              - label_count: number of positive of the case IDs
 
         Returns
         -------
         tuple[list, list]
             The first list contains the caseid of the train set. The second list contains a list of caseid for each fold of the cross-validation set.
         """
-        # Train Test split
-        n_iter = 0
-        best_cost = np.inf
-        while n_iter < self.n_max_iter_split:
-            n_iter += 1
+        train_label_stats, test_label_stats = create_balanced_split(
+            label_stats,
+            self.tolerance_segment_split,
+            self.tolerance_label_split,
+            self.n_max_iter_split,
+        )
 
-            np.random.seed(n_iter)
-            split = case_label_data.index.values
-            np.random.shuffle(split)
-
-            test = case_label_data.loc[split[: int(len(split) * TRAIN_RATIO)]]
-            train = case_label_data.loc[split[int(len(split) * TRAIN_RATIO):]]
-
-            ratio_segment = (
-                train["segment_count"].sum() / case_label_data["segment_count"].sum()
-            )
-            train_ratio_label = (
-                train["label_count"].sum() / train["segment_count"].sum()
-            )
-            test_ratio_label = test["label_count"].sum() / test["segment_count"].sum()
-
-            cost = (
-                abs(ratio_segment - TRAIN_RATIO) / self.tolerance_segment_split
-                + abs(train_ratio_label - test_ratio_label) / self.tolerance_label_split
-            )
-
-            if cost < best_cost:
-                best_cost = cost
-                best_iter = n_iter
-
-            if (abs(ratio_segment - TRAIN_RATIO) < self.tolerance_segment_split) and (
-                abs(train_ratio_label - test_ratio_label) < self.tolerance_label_split
-            ):
-                break
-
-        np.random.seed(best_iter)
-        split = case_label_data.index.values
-        np.random.shuffle(split)
-        train_index = split[: int(len(split) * TRAIN_RATIO)]
-
-        train = case_label_data.loc[case_label_data.index.isin(train_index)]
-        test = case_label_data.loc[~case_label_data.index.isin(train_index)]
-
+        train_ratio_segment = compute_ratio_segment(train_label_stats, label_stats)
+        train_ratio_label = compute_ratio_label(train_label_stats)
         print(
-            f"Train : {train['segment_count'].sum() / case_label_data['segment_count'].sum()*100:.2f} % of segments, {train['label_count'].sum() / train['segment_count'].sum()*100:.2f} % of labels"
+            f"Train : {train_ratio_segment:.2%} % of segments, "
+            f" {train_ratio_label:.2%} % of labels"
         )
+
+        test_ratio_segment = compute_ratio_segment(test_label_stats, label_stats)
+        test_ratio_label = compute_ratio_label(test_label_stats)
         print(
-            f"Test : {test['segment_count'].sum() / case_label_data['segment_count'].sum()*100:.2f} % of segments, {test['label_count'].sum() / test['segment_count'].sum()*100:.2f} % of labels"
+            f"Test : {test_ratio_segment:.2%} % of segments, "
+            f"{test_ratio_label:.2%} % of labels"
         )
 
-        # Cross-validation split
-
-        ratio_split = 1 / self.number_cv_splits
-        ratio_label = (
-            train["label_count"].sum() / train["segment_count"].sum()
+        train_cv_label_stats_splits = create_cv_balanced_split(
+            label_stats,
+            train_ratio_segment,
+            self.number_cv_splits,
+            self.tolerance_segment_split,
+            self.tolerance_label_split,
+            self.n_max_iter_split,
         )
-        nb_iter = 0
-        best_cost = np.inf
-        best_split = None
-        while True:
-            nb_iter += 1
-            if nb_iter > self.n_max_iter_split:
-                break
-            np.random.seed(nb_iter)
-            split = train.index.values
-            np.random.shuffle(split)
 
-            index_list = np.array_split(split, self.number_cv_splits)
-
-            split_list = [train.loc[index] for index in index_list]
-
-            ratio_segment_list = [
-                split["segment_count"].sum() / train["segment_count"].sum()
-                for split in split_list
-            ]
-            ratio_label_list = [
-                split["label_count"].sum() / split["segment_count"].sum()
-                for split in split_list
-            ]
-
-            cost = sum(
-                [abs(ratio - ratio) / self.tolerance_segment_split for ratio in ratio_segment_list]
-            ) + sum([abs(ratio - ratio_label) / self.tolerance_label_split for ratio in ratio_label_list])
-
-            if cost < best_cost:
-                best_cost = cost
-                best_split = nb_iter
-
-            if (
-                max([abs(ratio - ratio) / self.tolerance_segment_split for ratio in ratio_segment_list])
-                < self.tolerance_segment_split
-            ) and (
-                max([abs(ratio - ratio_label) / self.tolerance_label_split for ratio in ratio_label_list])
-                < self.tolerance_label_split
-            ):
-                break
-
-        np.random.seed(best_split)
-        split = train.index.values
-        np.random.shuffle(split)
-        index_list = []
-        for i in range(self.number_cv_splits):
-            index_list.append(
-                split[
-                    int(len(split) * i * ratio_split): int(
-                        len(split) * (i + 1) * ratio_split
-                    )
-                ]
-            )
-
-        cv_split_list = [train.loc[index] for index in index_list]
-
-        # print the result of the split
         print(f"Cross-validation split : {self.number_cv_splits} splits")
-        for i, split in enumerate(cv_split_list):
+        for i, split_label_stats in enumerate(train_cv_label_stats_splits):
+            split_label_ratio = compute_ratio_label(split_label_stats)
             print(
-                f"split {i} : {split['segment_count'].sum():,d} segments, "
-                f"{split['label_count'].sum():,d} labels, "
-                f"{split['label_count'].sum() / split['segment_count'].sum():.2%} ratio label"
+                f"split {i} : {split_label_stats.segment_count.sum():,d} segments, "
+                f"{split_label_stats.label_count.sum():,d} labels, "
+                f"{split_label_ratio:.2%} ratio label"
             )
 
-        return train_index.tolist(), cv_split_list
+        return train_label_stats.index.to_list(), train_cv_label_stats_splits
 
     def _process_case(self, param) -> None:
         caseid, case_data = param
