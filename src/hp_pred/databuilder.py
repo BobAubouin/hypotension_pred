@@ -374,7 +374,7 @@ class DataBuilder:
 
         train_index, cv_split_list = self._perform_split(case_data)
 
-        case_ids_and_splits = [(case_id, "test", "test") for case_id in case_ids]
+        case_ids_and_splits = [(case_id, "test", "test") for case_id in case_ids if case_id not in train_index]
         for i, split in enumerate(cv_split_list):
             case_ids_and_splits += [
                 (case_id, "train", f"cv_{i}") for case_id in split.index
@@ -455,7 +455,7 @@ class DataBuilder:
         # Cross-validation split
         ratio_split = 1 / self.number_cv_splits
         ratio_label = (
-            case_label_data["label_count"].sum() / case_label_data["segment_count"].sum()
+            train["label_count"].sum() / train["segment_count"].sum()
         )
         nb_iter = 0
         best_cost = np.inf
@@ -465,15 +465,15 @@ class DataBuilder:
             if nb_iter > self.n_max_iter_split:
                 break
             np.random.seed(nb_iter)
-            split = case_label_data.index.values
+            split = train.index.values
             np.random.shuffle(split)
 
             index_list = np.array_split(split, self.number_cv_splits)
 
-            split_list = [case_label_data.loc[index] for index in index_list]
+            split_list = [train.loc[index] for index in index_list]
 
             ratio_segment_list = [
-                split["segment_count"].sum() / case_label_data["segment_count"].sum()
+                split["segment_count"].sum() / train["segment_count"].sum()
                 for split in split_list
             ]
             ratio_label_list = [
@@ -499,7 +499,7 @@ class DataBuilder:
                 break
 
         np.random.seed(best_split)
-        split = case_label_data.index.values
+        split = train.index.values
         np.random.shuffle(split)
         index_list = []
         for i in range(self.number_cv_splits):
@@ -511,7 +511,7 @@ class DataBuilder:
                 ]
             )
 
-        cv_split_list = [case_label_data.loc[index] for index in index_list]
+        cv_split_list = [train.loc[index] for index in index_list]
 
         # print the result of the split
         print(f"Cross-validation split : {self.number_cv_splits} splits")

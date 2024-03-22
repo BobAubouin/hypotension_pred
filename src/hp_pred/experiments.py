@@ -16,7 +16,6 @@ def objective_xgboost(
     trial: Trial,
     data: pd.DataFrame,
     feature_name: list[str],
-    cv_split: list[np.ndarray],
 ) -> float:
     """
     Calculate the mean AUC score for XGBoost model using Optuna hyperparameter optimization.
@@ -48,10 +47,13 @@ def objective_xgboost(
         "nthread": 8,
         "scale_pos_weight": 15,
     }
-    number_cv_fold = data.cv_split.unique().shape[0]
+    number_cv_fold = len(data.cv_split.unique())
+    fold_number = 0
     # separate training in 3 folds
     auc_scores = np.zeros(number_cv_fold)
     for i, validate_data in data.groupby("cv_split"):
+        if i == 'test':
+            continue
         # split the data
         train_data = data[~data.cv_split.isin([i])]
 
@@ -62,13 +64,14 @@ def objective_xgboost(
 
         optuna_model = XGBClassifier(**params)
         optuna_model.fit(X_train, y_train)
-
         # Make predictions
         y_pred = optuna_model.predict_proba(X_validate)[:, 1]
 
         # Evaluate predictions
         accuracy = roc_auc_score(y_validate, y_pred)
-        auc_scores[i] = accuracy
+
+        auc_scores[fold_number] = accuracy
+        fold_number += 1
 
     return auc_scores.mean()
 

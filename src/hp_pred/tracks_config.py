@@ -6,8 +6,8 @@ STATIC_NAME_TO_DTYPES = {
     "age": np.uint16,
     "bmi": np.float16,
     "preop_cr": np.float32,
-    "asa": "category",
-    "preop_htn": "category",
+    "asa": np.uint16,
+    "preop_htn": np.uint16,
     "opname": "category",
 }
 
