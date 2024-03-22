@@ -77,9 +77,7 @@ class DataBuilder:
             "min_time_ioh": self.min_time_ioh * self.sampling_time,
             "min_value_ioh": self.min_value_ioh,
             # Features parameters
-            "half_times": [
-                half_time // self.sampling_time for half_time in self.half_times
-            ],
+            "half_times": [half_time * self.sampling_time for half_time in self.half_times],
             # Split parameters
             "tolerance_segment_split": self.tolerance_segment_split,
             "tolerance_label_split": self.tolerance_label_split,
