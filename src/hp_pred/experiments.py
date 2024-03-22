@@ -48,31 +48,26 @@ def objective_xgboost(
         "nthread": 8,
         "scale_pos_weight": 15,
     }
-
+    number_cv_fold = data.cv_split.unique().shape[0]
     # separate training in 3 folds
-    auc_scores = np.zeros(NUMBER_CV_FOLD)
-    for i in range(NUMBER_CV_FOLD):
+    auc_scores = np.zeros(number_cv_fold)
+    for i, validate_data in data.groupby("cv_split"):
         # split the data
-        test_caseid = cv_split[i]
-        train_caseid = np.concatenate(
-            [cv_split[j] for j in range(NUMBER_CV_FOLD) if j != i]
-        )
-        df_train = data[data.caseid.isin(train_caseid)]
-        df_test = data[data.caseid.isin(test_caseid)]
+        train_data = data[~data.cv_split.isin([i])]
 
-        X_train = df_train[feature_name]
-        y_train = df_train.label
-        X_test = df_test[feature_name]
-        y_test = df_test.label
+        X_train = train_data[feature_name]
+        y_train = train_data.label
+        X_validate = validate_data[feature_name]
+        y_validate = validate_data.label
 
         optuna_model = XGBClassifier(**params)
         optuna_model.fit(X_train, y_train)
 
         # Make predictions
-        y_pred = optuna_model.predict_proba(X_test)[:, 1]
+        y_pred = optuna_model.predict_proba(X_validate)[:, 1]
 
         # Evaluate predictions
-        accuracy = roc_auc_score(y_test, y_pred)
+        accuracy = roc_auc_score(y_validate, y_pred)
         auc_scores[i] = accuracy
 
     return auc_scores.mean()
