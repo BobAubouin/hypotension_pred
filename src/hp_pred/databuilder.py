@@ -583,10 +583,10 @@ class DataBuilder:
         self._create_meta(static_data)
         self._dump_dataset_parameter()
 
+    @classmethod
+    def from_json(cls, dataset_folder: Path):
+        filename = dataset_folder / PARAMETERS_FILENAME
+        with open(filename, mode="r", encoding="utf-8") as file:
+            parameters = json.load(file)
 
-def build_databuilder(dataset_folder: Path) -> DataBuilder:
-    filename = dataset_folder / PARAMETERS_FILENAME
-    with open(filename, mode="r", encoding="utf-8") as file:
-        parameters = json.load(file)
-
-    return DataBuilder(**parameters)
+        return cls(**parameters)
