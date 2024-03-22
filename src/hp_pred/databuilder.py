@@ -348,6 +348,8 @@ class DataBuilder:
             return
         case_df = pd.concat(list_of_segments, axis=0, ignore_index=True)
 
+        case_df.label_id = case_df.label_id.astype(str) + "_" + case_df.caseid.astype(str)
+
         filename = f"case{case_id}.parquet"
         parquet_file = self.cases_folder / filename
         case_df.to_parquet(parquet_file, index=False)
