@@ -318,7 +318,7 @@ def build_dataset(
 
     n_case_ids = len(case_ids)
     case_ids_groups = [
-        case_ids[i : i + group_size] for i in range(0, n_case_ids, group_size)
+        case_ids[i: i + group_size] for i in range(0, n_case_ids, group_size)
     ]
     logger.info(
         f"Buid dataset: Group size {group_size}, "
@@ -357,7 +357,7 @@ def main():
     if not output_folder.exists():
         output_folder.mkdir(parents=True)
     setup_logger(output_folder, log_level_name)
-
+    logger.info("The use of data from VitalDB is subject to the terms of use, see: https://vitaldb.net/dataset/#h.vcpgs1yemdb5")
     logger.debug("Retrieve meta data and cases data from VitalDB: Start")
     tracks_meta = pd.read_csv(TRACKS_META_URL, dtype={"tname": "category"})
     cases = pd.read_csv(CASE_INFO_URL)
