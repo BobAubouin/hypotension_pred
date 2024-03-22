@@ -5,7 +5,7 @@ import numpy as np
 from sklearn.metrics import roc_auc_score
 from xgboost import XGBClassifier
 from sklearn.metrics import auc, roc_curve
-from hp_pred.databuilder import build_databuilder
+from hp_pred.databuilder import DataBuilder
 from optuna import Trial
 
 NUMBER_CV_FOLD = 3
@@ -287,7 +287,7 @@ def load_labelized_cases(
     Returns:
         pd.DataFrame: Labeled case data.
     """
-    databuilder = build_databuilder(dataset_path)
+    databuilder = DataBuilder.from_json(dataset_path)
     databuilder.raw_data_folder = databuilder.raw_data_folder / f"case-{caseid:04d}.parquet"
     case_data, _ = databuilder._import_raw()
     case_data = case_data.reset_index("caseid", drop=True)
