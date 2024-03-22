@@ -23,9 +23,11 @@ pip install -e .[dev]
 
 ## Use
 
-### Download the dataset
+### Download raw data from VitalDB
 
-The data used are from the [VitalDB](https://vitaldb.net/) open dataset. To download them you can use the package's command `python -m hp_pred.dataset_download`. The help command outputs the following:
+The data used are from the [VitalDB](https://vitaldb.net/) open dataset. You must read the [Data Use Agreement](https://vitaldb.net/dataset/#h.vcpgs1yemdb5) before using it.
+
+ To download the data you can use the package's command `python -m hp_pred.dataset_download`. The help command outputs the following:
 
 ```
 usage: dataset_download.py [-h] [-l {CRITICAL,FATAL,ERROR,WARN,WARNING,INFO,DEBUG,NOTSET}] [-s GROUP_SIZE] [-o OUTPUT_FOLDER]
@@ -40,4 +42,24 @@ options:
                         Amount of cases dowloaded and processed. (default: 950)
   -o OUTPUT_FOLDER, --output_folder OUTPUT_FOLDER
                         The folder to store the data and logs. (default: data)
+```
+
+### Create the segmented dataset
+
+The class `hp_pred.databuilder.DataBuilder` is used to create the segmented dataset with a sliding window approach. An exemple of use is given in the `scripts/dataset_build/base_dataset.py` scripts.
+
+### Recreate CDC results
+
+The results associated with our paper can be replicated running the notebooks in the `scripts/experiments` folder. This exact order of running must be respected:
+
+- `baseline.ipynb`
+- `xgboos-model.ipynb`
+- `study_leading_time.ipynb`
+
+# Citation
+
+If you use this code in your research, please cite the following paper:
+
+```
+
 ```
