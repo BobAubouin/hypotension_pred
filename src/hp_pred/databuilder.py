@@ -56,22 +56,22 @@ class DataBuilder:
             "static_data_names": self.static_data_names,
             # Pre process parameters
             "sampling_time": self.sampling_time,
-            "window_size_peak": self.window_size_peak,
+            "window_size_peak": self.window_size_peak*self.sampling_time,
             "max_mbp_segment": self.max_mbp_segment,
             "min_mbp_segment": self.min_mbp_segment,
             "threshold_peak": self.threshold_peak,
             # Segmentations parameters
-            "prediction_window_length": self.prediction_window_length,
-            "leading_time": self.leading_time,
-            "observation_window_length": self.observation_window_length,
-            "segment_shift": self.segment_shift,
-            "recovery_time": self.recovery_time,
+            "prediction_window_length": self.prediction_window_length*self.sampling_time,
+            "leading_time": self.leading_time*self.sampling_time,
+            "observation_window_length": self.observation_window_length*self.sampling_time,
+            "segment_shift": self.segment_shift*self.sampling_time,
+            "recovery_time": self.recovery_time*self.sampling_time,
             "max_nan_segment": self.max_nan_segment,
             # Label parameters
-            "min_time_ioh": self.min_time_ioh,
-            "min_value_ioh": self.min_time_ioh,
+            "min_time_ioh": self.min_time_ioh*self.sampling_time,
+            "min_value_ioh": self.min_value_ioh,
             # Features parameters
-            "half_times": self.half_times,
+            "half_times": [half_time // self.sampling_time for half_time in self.half_times],
             # Split parameters
             "tolerance_segment_split": self.tolerance_segment_split,
             "tolerance_label_split": self.tolerance_label_split,
@@ -171,6 +171,7 @@ class DataBuilder:
         raw_data = raw_data[self.signal_features_names + ["caseid", "Time"]]
 
         static_data = pd.read_parquet(self.static_data_file)[self.static_data_names]
+        static_data = static_data.loc[:, ~static_data.columns.duplicated()].copy()
         static_data = static_data[static_data.caseid.isin(raw_data.caseid.unique())]
         assert len(raw_data.caseid.unique()) == len(static_data.caseid.unique())
 
@@ -365,22 +366,37 @@ class DataBuilder:
         case_ids = list(case_data.index)
         static_data = static_data[static_data.caseid.isin(case_ids)]
 
-        train_index = self._perform_split(case_data)
+        train_index, cv_split_list = self._perform_split(case_data)
 
-        case_ids_and_splits = [
-            ((case_id, "train") if case_id in train_index else (case_id, "test"))
-            for case_id in case_ids
-        ]
+        case_ids_and_splits = [(case_id, "test", "test") for case_id in case_ids]
+        for i, split in enumerate(cv_split_list):
+            case_ids_and_splits += [
+                (case_id, "train", f"cv_{i}") for case_id in split.index
+            ]
 
         split = pd.DataFrame.from_records(
-            data=case_ids_and_splits, columns=["caseid", "split"]
-        ).astype({"split": "category"})
+            data=case_ids_and_splits, columns=["caseid", "split", "cv_split"]
+        ).astype({"split": "category", "cv_split": "category"})
         static_data = static_data.merge(split, on="caseid")
 
         static_data.to_parquet(self.dataset_output_folder / "meta.parquet", index=False)
 
-    def _perform_split(self, case_label_data: pd.DataFrame) -> list:
+    def _perform_split(self, case_label_data: pd.DataFrame) -> tuple[list, list]:
+        """Genrate a list of index for the train set. And for the cross-validation set.
 
+        The split is done in order to have the same ratio of segments and labels in the train and test set. The CV split is also don in a balance manner. Parameters of the split are defined in the DatasetBuilder object.
+
+        Parameters
+        ----------
+        case_label_data : pd.DataFrame
+            Dataframe including the number of segments and labels for each case.
+
+        Returns
+        -------
+        tuple[list, list]
+            The first list contains the caseid of the train set. The second list contains a list of caseid for each fold of the cross-validation set.
+        """
+        # Train Test split
         n_iter = 0
         best_cost = np.inf
         while n_iter < self.n_max_iter_split:
@@ -431,7 +447,77 @@ class DataBuilder:
         )
         print(f"Best cost : {best_cost:.2f} at iteration {best_iter}")
 
-        return train_index.tolist()
+        # Cross-validation split
+        ratio_split = 1 / self.number_cv_splits
+        ratio_label = (
+            case_label_data["label_count"].sum() / case_label_data["segment_count"].sum()
+        )
+        nb_iter = 0
+        best_cost = np.inf
+        best_split = None
+        while True:
+            nb_iter += 1
+            if nb_iter > self.n_max_iter_split:
+                break
+            np.random.seed(nb_iter)
+            split = case_label_data.index.values
+            np.random.shuffle(split)
+
+            index_list = np.array_split(split, self.number_cv_splits)
+
+            split_list = [case_label_data.loc[index] for index in index_list]
+
+            ratio_segment_list = [
+                split["segment_count"].sum() / case_label_data["segment_count"].sum()
+                for split in split_list
+            ]
+            ratio_label_list = [
+                split["label_count"].sum() / split["segment_count"].sum()
+                for split in split_list
+            ]
+
+            cost = sum(
+                [abs(ratio - ratio) / self.tolerance_segment_split for ratio in ratio_segment_list]
+            ) + sum([abs(ratio - ratio_label) / self.tolerance_label_split for ratio in ratio_label_list])
+
+            if cost < best_cost:
+                best_cost = cost
+                best_split = nb_iter
+
+            if (
+                max([abs(ratio - ratio) / self.tolerance_segment_split for ratio in ratio_segment_list])
+                < self.tolerance_segment_split
+            ) and (
+                max([abs(ratio - ratio_label) / self.tolerance_label_split for ratio in ratio_label_list])
+                < self.tolerance_label_split
+            ):
+                break
+
+        np.random.seed(best_split)
+        split = case_label_data.index.values
+        np.random.shuffle(split)
+        index_list = []
+        for i in range(self.number_cv_splits):
+            index_list.append(
+                split[
+                    int(len(split) * i * ratio_split): int(
+                        len(split) * (i + 1) * ratio_split
+                    )
+                ]
+            )
+
+        cv_split_list = [case_label_data.loc[index] for index in index_list]
+
+        # print the result of the split
+        print(f"Cross-validation split : {self.number_cv_splits} splits")
+        for i, split in enumerate(cv_split_list):
+            print(
+                f"split {i} : {split['segment_count'].sum():,d} segments, "
+                f"{split['label_count'].sum():,d} labels, "
+                f"{split['label_count'].sum() / split['segment_count'].sum():.2%} ratio label"
+            )
+
+        return train_index.tolist(), cv_split_list
 
     def _process_case(self, param) -> None:
         caseid, case_data = param
