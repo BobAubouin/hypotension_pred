@@ -442,8 +442,8 @@ class DataBuilder:
         np.random.shuffle(split)
         train_index = split[: int(len(split) * TRAIN_RATIO)]
 
-        train = case_label_data.loc[split[: int(len(split) * TRAIN_RATIO)]]
-        test = case_label_data.loc[split[int(len(split) * TRAIN_RATIO):]]
+        train = case_label_data.loc[case_label_data.index.isin(train_index)]
+        test = case_label_data.loc[~case_label_data.index.isin(train_index)]
 
         print(
             f"Train : {train['segment_count'].sum() / case_label_data['segment_count'].sum()*100:.2f} % of segments, {train['label_count'].sum() / train['segment_count'].sum()*100:.2f} % of labels"
@@ -453,6 +453,7 @@ class DataBuilder:
         )
 
         # Cross-validation split
+
         ratio_split = 1 / self.number_cv_splits
         ratio_label = (
             train["label_count"].sum() / train["segment_count"].sum()
