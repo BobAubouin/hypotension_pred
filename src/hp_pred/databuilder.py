@@ -76,6 +76,7 @@ class DataBuilder:
             "tolerance_segment_split": self.tolerance_segment_split,
             "tolerance_label_split": self.tolerance_label_split,
             "n_max_iter_split": self.n_max_iter_split,
+            "number_cv_splits": self.number_cv_splits,
             # folder information
             "raw_data_folder_path": str(self.raw_data_folder),
             "static_data_path": str(self.static_data_file),
@@ -106,6 +107,7 @@ class DataBuilder:
         tolerance_segment_split: float = TOLERANCE_SEGMENT_SPLIT,
         tolerance_label_split: float = TOLERANCE_LABEL_SPLIT,
         n_max_iter_split: int = N_MAX_ITER_SPLIT,
+        number_cv_splits: int = 3,
     ) -> None:
         # Raw data
         raw_data_folder = Path(raw_data_folder_path)
@@ -161,6 +163,7 @@ class DataBuilder:
         self.tolerance_segment_split = tolerance_segment_split
         self.tolerance_label_split = tolerance_label_split
         self.n_max_iter_split = n_max_iter_split
+        self.number_cv_splits = number_cv_splits
         # End (Split)
 
         self._store_parameters()
@@ -339,6 +342,7 @@ class DataBuilder:
                 ].label_id
             else:
                 segment_features["time_before_IOH"] = np.nan
+                segment_features["label_id"] = np.nan
 
             segment_features["caseid"] = case_id
 
@@ -447,7 +451,6 @@ class DataBuilder:
         print(
             f"Test : {test['segment_count'].sum() / case_label_data['segment_count'].sum()*100:.2f} % of segments, {test['label_count'].sum() / test['segment_count'].sum()*100:.2f} % of labels"
         )
-        print(f"Best cost : {best_cost:.2f} at iteration {best_iter}")
 
         # Cross-validation split
         ratio_split = 1 / self.number_cv_splits
