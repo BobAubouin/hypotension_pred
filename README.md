@@ -51,7 +51,7 @@ The class `hp_pred.databuilder.DataBuilder` is used to create the segmented data
 
 ### Recreate CDC results
 
-The results associated with our paper can be replicated using the version of the git tagged 'cdc_XP', running the notebooks in the `scripts/experiments` folder. This exact order of running must be respected:
+The results associated with our paper can be replicated using the version of the git tagged 'cdc_XP'. You should create the database running the previously mentioned step. Then you should run the notebooks in the `scripts/experiments` folder. This exact order of running must be respected:
 
 - `baseline.ipynb`
 - `xgboos-model.ipynb`
