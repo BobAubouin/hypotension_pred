@@ -48,7 +48,7 @@ MAX_NAN_SEGMENT = 0.2  # maximum acceptable value for the nan in the segment (in
 RECOVERY_TIME = 10 * 60  # recovery time after the IOH (in seconds)
 TOLERANCE_SEGMENT_SPLIT = 0.01  # tolerance for the segment split
 TOLERANCE_LABEL_SPLIT = 0.005  # tolerance for the label split
-N_MAX_ITER_SPLIT = 10000  # maximum number of iteration for the split
+N_MAX_ITER_SPLIT = 1_000_000  # maximum number of iteration for the split
 
 
 class DataBuilder:
@@ -87,6 +87,7 @@ class DataBuilder:
             "raw_data_folder_path": str(self.raw_data_folder),
             "static_data_path": str(self.static_data_file),
             "dataset_output_folder_path": str(self.dataset_output_folder),
+            "extract_features": self.extract_features,
         }
 
     def __init__(
@@ -114,6 +115,7 @@ class DataBuilder:
         tolerance_label_split: float = TOLERANCE_LABEL_SPLIT,
         n_max_iter_split: int = N_MAX_ITER_SPLIT,
         number_cv_splits: int = 3,
+        extract_features: bool = True,
     ) -> None:
         # Raw data
         raw_data_folder = Path(raw_data_folder_path)
@@ -157,6 +159,7 @@ class DataBuilder:
         # End (Segments parameters)
 
         # Features generation
+        self.extract_features = extract_features
         self.half_times = [half_time // sampling_time for half_time in half_times]
         # End (Features generation)
 
@@ -318,7 +321,7 @@ class DataBuilder:
         segment_id = 0
         list_of_segments = []
         for i_time_start in indexes_range:
-            segment = case_data.iloc[i_time_start : i_time_start + self.segment_length]
+            segment = case_data.iloc[i_time_start: i_time_start + self.segment_length]
 
             start_time_previous_segment = max(0, i_time_start - self.recovery_time)
             previous_segment = case_data.iloc[start_time_previous_segment:i_time_start]
@@ -328,10 +331,17 @@ class DataBuilder:
             segment_id += 1
 
             segment_observations = segment.iloc[: self.observation_window_length]
-            segment_features = self._create_segment_features(segment_observations)
+            if self.extract_features:
+                segment_features = self._create_segment_features(segment_observations)
+            else:
+                segment_features = segment_observations[self.signal_features_names].copy()
+                segment_features.index = range(len(segment_features))
+                stacked_df = segment_features.stack().reset_index()
+                stacked_df.columns = ['timestamp', 'Signal', 'Value']
+                segment_features = stacked_df.set_index(['Signal', 'timestamp']).sort_index().transpose()
 
             segment_predictions = segment.iloc[
-                (self.observation_window_length + self.leading_time) :
+                (self.observation_window_length + self.leading_time):
             ]
             segment_features["label"] = (
                 (segment_predictions.label.sum() > 0).astype(int),
@@ -364,6 +374,11 @@ class DataBuilder:
 
         filename = f"case{case_id}.parquet"
         parquet_file = self.cases_folder / filename
+        case_df.columns = ['_'.join(map(str, col)) if isinstance(col, tuple) else col for col in case_df.columns]
+        for col in case_df.columns:
+            if col.endswith('_'):
+                # remove the '_' at the end of the column name
+                case_df.rename(columns={col: col[:-1]}, inplace=True)
         case_df.to_parquet(parquet_file, index=False)
 
     def _create_meta(self, static_data: pd.DataFrame) -> None:
@@ -376,6 +391,7 @@ class DataBuilder:
             pd.read_parquet(self.cases_folder)
             .groupby("caseid")
             .agg(
+                # case_id=("caseid", "first"),
                 segment_count=("label", "count"),
                 label_count=("label", "sum"),
             )
@@ -430,19 +446,21 @@ class DataBuilder:
         train_ratio_segment = compute_ratio_segment(train_label_stats, label_stats)
         train_ratio_label = compute_ratio_label(train_label_stats)
         print(
-            f"Train : {train_ratio_segment:.2%} % of segments, "
+            f"Train : {train_label_stats.segment_count.sum():,d} segments "
+            f"({train_ratio_segment:.2%} %), "
             f" {train_ratio_label:.2%} % of labels"
         )
 
         test_ratio_segment = compute_ratio_segment(test_label_stats, label_stats)
         test_ratio_label = compute_ratio_label(test_label_stats)
         print(
-            f"Test : {test_ratio_segment:.2%} % of segments, "
+            f"Test : {test_label_stats.segment_count.sum():,d} segments "
+            f"({test_ratio_segment:.2%} %), "
             f"{test_ratio_label:.2%} % of labels"
         )
 
         train_cv_label_stats_splits = create_cv_balanced_split(
-            label_stats,
+            train_label_stats,
             train_ratio_segment,
             self.number_cv_splits,
             self.tolerance_segment_split,

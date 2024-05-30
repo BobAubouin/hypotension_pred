@@ -9,7 +9,7 @@ def create_random_split(
     seed: int, label_stats: pd.DataFrame
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     np.random.seed(seed)
-    case_ids = label_stats.index.values
+    case_ids = label_stats.index.to_numpy(copy=True)
     np.random.shuffle(case_ids)
 
     case_ids_shuffled = pd.Index(case_ids)
@@ -88,7 +88,8 @@ def create_cv_balanced_split(
         n_iter += 1
 
         np.random.seed(n_iter)
-        case_ids = label_stats.index.values
+        # case_ids = label_stats.index.values.copy()
+        case_ids = label_stats.index.to_numpy(copy=True)
         np.random.shuffle(case_ids)
         case_ids_split = np.array_split(case_ids, n_cv_splits)
 
@@ -121,7 +122,7 @@ def create_cv_balanced_split(
         tolerance_label_is_ok = max(label_costs) < 1
 
     np.random.seed(best_split)
-    case_ids = label_stats.index.values
+    case_ids = label_stats.index.to_numpy(copy=True)
     np.random.shuffle(case_ids)
     case_ids_split = np.array_split(case_ids, n_cv_splits)
 

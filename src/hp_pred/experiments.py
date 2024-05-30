@@ -51,9 +51,8 @@ def objective_xgboost(
     fold_number = 0
     # separate training in 3 folds
     auc_scores = np.zeros(number_cv_fold)
-    for i, validate_data in data.groupby("cv_split"):
-        if i == 'test':
-            continue
+    assert (data.cv_split != 'test').all(), "cv_split should be 'cv_i' with i an integer, not test"
+    for i, validate_data in data.groupby("cv_split", observed=True):
         # split the data
         train_data = data[~data.cv_split.isin([i])]
 

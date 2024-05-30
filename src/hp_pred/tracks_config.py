@@ -41,3 +41,10 @@ DEVICE_NAME_TO_SAMPLING_RATE = {
     "Primus": 7,
     "BIS": 1,
 }
+
+WAV_TRACK = [
+    'SNUADC/*',
+    'Primus/AWP',
+    'Primus/CO2',
+    'BIS/EEG1_WAV',
+    'BIS/EEG2_WAV']
