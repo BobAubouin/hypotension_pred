@@ -5,6 +5,7 @@ import logging
 from pathlib import Path
 
 import pandas as pd
+import numpy as np
 
 from hp_pred.constants import VITAL_API_BASE_URL
 from hp_pred.data_retrieve_async import retrieve_tracks_raw_data_async
@@ -213,7 +214,7 @@ def retrieve_tracks_raw_data(tracks_meta: pd.DataFrame) -> pd.DataFrame:
 
 
 def format_track_raw_data_wav(track_raw_data: pd.DataFrame) -> pd.DataFrame:
-    raise NotImplementedError
+    logger.debug("Data formatting: Enter WAV formatting")
 
 
 def format_track_raw_data_num(tracks_raw_data: pd.DataFrame) -> pd.DataFrame:

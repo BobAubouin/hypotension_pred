@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from tqdm.contrib.concurrent import process_map
+from sklearn.linear_model import LinearRegression
 
 from hp_pred.split import (
     compute_ratio_label,
@@ -19,7 +20,7 @@ RAW_FEATURES_NAME_TO_NEW_NAME = {
     "Solar8000/ART_SBP": "sbp",
     "Solar8000/ART_DBP": "dbp",
     "Solar8000/HR": "hr",
-    "Solar8000/RR": "rr",
+    "Solar8000/RR_CO2": "rr",
     "Solar8000/PLETH_SPO2": "spo2",
     "Solar8000/ETCO2": "etco2",
     "Orchestra/PPF20_CT": "pp_ct",
@@ -48,7 +49,8 @@ MAX_NAN_SEGMENT = 0.2  # maximum acceptable value for the nan in the segment (in
 RECOVERY_TIME = 10 * 60  # recovery time after the IOH (in seconds)
 TOLERANCE_SEGMENT_SPLIT = 0.01  # tolerance for the segment split
 TOLERANCE_LABEL_SPLIT = 0.005  # tolerance for the label split
-N_MAX_ITER_SPLIT = 1_000_000  # maximum number of iteration for the split
+N_MAX_ITER_SPLIT = 500_000  # maximum number of iteration for the split
+SMOOTH_PERIOD = 20  # period for the rolling mean in seconds
 
 
 class DataBuilder:
@@ -88,6 +90,7 @@ class DataBuilder:
             "static_data_path": str(self.static_data_file),
             "dataset_output_folder_path": str(self.dataset_output_folder),
             "extract_features": self.extract_features,
+            "smooth_period": self.smooth_period,
         }
 
     def __init__(
@@ -116,6 +119,7 @@ class DataBuilder:
         n_max_iter_split: int = N_MAX_ITER_SPLIT,
         number_cv_splits: int = 3,
         extract_features: bool = True,
+        smooth_period: int = SMOOTH_PERIOD,
     ) -> None:
         # Raw data
         raw_data_folder = Path(raw_data_folder_path)
@@ -142,6 +146,7 @@ class DataBuilder:
         self.max_mbp_segment = max_mbp_segment
         self.min_mbp_segment = min_mbp_segment
         self.threshold_peak = threshold_peak
+        self.smooth_period = smooth_period
         # End (Preprocess)
 
         # Segments parameters
@@ -197,7 +202,10 @@ class DataBuilder:
         return raw_data, static_data
 
     def _preprocess_sampling(self, case_data: pd.DataFrame) -> pd.DataFrame:
-        return case_data.resample(f"{self.sampling_time}S").first()
+        if self.sampling_time == 30:
+            # to perform as in Grenoble dataset
+            return case_data.resample(f"{self.sampling_time}S", closed='right', label='right').median()
+        return case_data.resample(f"{self.sampling_time}S").last()
 
     def _preprocess_peak(self, case_data: pd.DataFrame) -> pd.DataFrame:
         # remove too low value (before the start of the measurement)
@@ -223,21 +231,35 @@ class DataBuilder:
 
         # Identify peaks based on the difference from the rolling mean
         case_data.mbp.mask(
-            (case_data.mbp - rolling_mean_mbp).abs() > self.threshold_peak
+            (case_data.mbp - rolling_mean_mbp).abs() > self.threshold_peak,
+            inplace=True,
         )
         case_data.sbp.mask(
-            (case_data.sbp - rolling_mean_sbp).abs() > self.threshold_peak * 1.5
+            (case_data.sbp - rolling_mean_sbp).abs() > self.threshold_peak * 1.5,
+            inplace=True,
         )
         case_data.dbp.mask(
-            (case_data.dbp - rolling_mean_dbp).abs() > self.threshold_peak
+            (case_data.dbp - rolling_mean_dbp).abs() > self.threshold_peak,
+            inplace=True,
         )
 
         return case_data
 
+    def _smooth(self, case_data: pd.DataFrame) -> pd.DataFrame:
+        signals_to_smooth = [sign for sign in self.signal_features_names if sign != 'pp_ct']
+        case_data[signals_to_smooth] = case_data[signals_to_smooth].rolling(
+            window=self.smooth_period, min_periods=1).mean()
+        return case_data
+
+    def fillnan(self, case_data: pd.DataFrame) -> pd.DataFrame:
+        case_data.mbp = case_data.mbp.interpolate()
+        case_data.sbp = case_data.sbp.interpolate()
+        case_data.dbp = case_data.dbp.interpolate()
+        return case_data.fillna(value=0)
+
     def _preprocess(self, case_data: pd.DataFrame) -> pd.DataFrame:
         case_data.pp_ct.fillna(0, inplace=True)
-
-        _preprocess_functions = [self._preprocess_sampling, self._preprocess_peak]
+        _preprocess_functions = [self._smooth, self._preprocess_sampling, self._preprocess_peak, self.fillnan]
 
         # NOTE: acc = accumulator
         return reduce(lambda acc, method: method(acc), _preprocess_functions, case_data)
@@ -270,7 +292,7 @@ class DataBuilder:
         self, segment: pd.DataFrame, previous_segment: pd.DataFrame
     ) -> bool:
         # Too low/high MBP
-        mbp = segment.mbp
+        mbp = segment[: self.observation_window_length].mbp
         if (mbp < self.min_mbp_segment).any() or (mbp > self.max_mbp_segment).any():
             return False
 
@@ -283,14 +305,14 @@ class DataBuilder:
             return False
 
         for signal in self.signal_features_names:
-            device_rate = DEVICE_NAME_TO_SAMPLING_RATE.get(signal, SOLAR_SAMPLING_RATE)
+            if signal in ["mac", "pp_ct"]:
+                continue
 
-            nan_ratio = max(0, 1 - self.sampling_time / device_rate)
-            threshold_percent = nan_ratio + (1 - nan_ratio) * self.max_nan_segment
+            threshold_percent = self.max_nan_segment
             threshold_n_nans = threshold_percent * self.observation_window_length
 
             if (
-                segment.iloc[: self.observation_window_length][signal].isna().sum()
+                segment.iloc[: self.observation_window_length][signal].isnull().sum()
                 > threshold_n_nans
             ):
                 return False
@@ -305,13 +327,44 @@ class DataBuilder:
         for half_time in self.half_times:
             str_halt_time = str(half_time * self.sampling_time)
             for signal_name in self.signal_features_names:
-                ewm = segment_observation[signal_name].ewm(halflife=half_time)
-                ema_column = signal_name + "_ema_" + str_halt_time
-                std_column = signal_name + "_std_" + str_halt_time
+                pred_features = signal_name + "_pred_" + str_halt_time
+                # slope_features = signal_name + "_slope_" + str_halt_time
+                std_features = signal_name + "_std_" + str_halt_time
 
-                column_to_features[ema_column] = (ewm.mean().iloc[-1],)
-                column_to_features[std_column] = (ewm.std().iloc[-1],)
+                if half_time == 0:
+                    half_time = 2
+                else:
+                    model = LinearRegression()
+                    model.fit(
+                        np.arange(-half_time, 0).reshape(-1, 1),
+                        segment_observation[signal_name].iloc[-half_time:],
+                    )
+                    next_y_pred = model.predict([[1]])
+                    column_to_features[pred_features] = (next_y_pred[0],)
+                    # column_to_features[slope_features] = (model.coef_[0],)
+                    y_pred = model.predict(np.arange(-half_time, 0).reshape(-1, 1))
+                    error = segment_observation[signal_name].iloc[-half_time:] - y_pred
+                    column_to_features[std_features] = (
+                        error.std()
+                    )
 
+                # ema_column = signal_name + "_ema_" + str_halt_time
+                # std_column = signal_name + "_std_" + str_halt_time
+
+                # if half_time == 0:
+                #     column_to_features[ema_column] = (
+                #         segment_observation[signal_name].iloc[-1],
+                #     )
+                #     column_to_features[std_column] = (
+                #         segment_observation[signal_name].diff().iloc[-1],
+                #     )
+                # else:
+                #     ewm = segment_observation[signal_name].ewm(halflife=half_time)
+
+                #     column_to_features[ema_column] = (ewm.mean().iloc[-1],)
+                #     column_to_features[std_column] = (ewm.std().iloc[-1],)
+        # add last value as baseline feature
+        column_to_features["last_map_value"] = (segment_observation.mbp.iloc[-1],)
         return pd.DataFrame(column_to_features, dtype="Float32")
 
     def _create_segments(self, case_data: pd.DataFrame, case_id: int) -> None:
@@ -447,16 +500,16 @@ class DataBuilder:
         train_ratio_label = compute_ratio_label(train_label_stats)
         print(
             f"Train : {train_label_stats.segment_count.sum():,d} segments "
-            f"({train_ratio_segment:.2%} %), "
-            f" {train_ratio_label:.2%} % of labels"
+            f"({train_ratio_segment:.2%}), "
+            f" {train_ratio_label:.2%} of labels"
         )
 
         test_ratio_segment = compute_ratio_segment(test_label_stats, label_stats)
         test_ratio_label = compute_ratio_label(test_label_stats)
         print(
             f"Test : {test_label_stats.segment_count.sum():,d} segments "
-            f"({test_ratio_segment:.2%} %), "
-            f"{test_ratio_label:.2%} % of labels"
+            f"({test_ratio_segment:.2%}), "
+            f"{test_ratio_label:.2%} of labels"
         )
 
         train_cv_label_stats_splits = create_cv_balanced_split(
@@ -521,7 +574,7 @@ class DataBuilder:
         raw_data, static_data = self._import_raw()
 
         print("Segmentation...")
-        with mp.Pool() as pool:
+        with mp.Pool():
             process_map(
                 self._process_case,
                 raw_data.groupby("caseid", as_index=False),

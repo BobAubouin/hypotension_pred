@@ -27,7 +27,7 @@ TRACKS_CONFIG = [
             "ART_SBP",
             "ART_DBP",
             "HR",
-            "RR",
+            "RR_CO2",
             "PLETH_SPO2",
             "ETCO2",
         ],
