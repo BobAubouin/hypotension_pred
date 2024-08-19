@@ -209,7 +209,8 @@ class DataBuilder:
 
     def _preprocess_peak(self, case_data: pd.DataFrame) -> pd.DataFrame:
         # remove too low value (before the start of the measurement)
-        # case_data.mbp.mask(case_data.mbp < self.min_mbp_segment, inplace=True)
+        case_data.mbp.mask(case_data.mbp < self.min_mbp_segment, inplace=True)
+        case_data.mbp.mask(case_data.mbp > self.max_mbp_segment, inplace=True)
 
         # removing the nan values at the beginning and the ending
         case_valid_mask = ~(case_data.mbp < self.min_mbp_segment)
