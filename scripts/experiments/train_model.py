@@ -50,7 +50,12 @@ rng_seed = 42
 
 FEATURE_NAME = (
     [
-        f"{signal}_pred_{half_time}"
+        f"{signal}_constant_{half_time}"
+        for signal in SIGNAL_FEATURE
+        for half_time in HALF_TIME_FILTERING
+    ]
+    + [
+        f"{signal}_slope_{half_time}"
         for signal in SIGNAL_FEATURE
         for half_time in HALF_TIME_FILTERING
     ]
