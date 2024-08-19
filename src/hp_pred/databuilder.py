@@ -212,7 +212,7 @@ class DataBuilder:
         # case_data.mbp.mask(case_data.mbp < self.min_mbp_segment, inplace=True)
 
         # removing the nan values at the beginning and the ending
-        case_valid_mask = ~case_data.mbp < self.min_mbp_segment
+        case_valid_mask = ~(case_data.mbp < self.min_mbp_segment)
         case_data = case_data[
             (np.cumsum(case_valid_mask) > 0)
             & (np.cumsum(case_valid_mask[::-1])[::-1] > 0)
