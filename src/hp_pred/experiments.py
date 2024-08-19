@@ -1,5 +1,6 @@
 from pathlib import Path
 import multiprocessing as mp
+import os
 
 import pandas as pd
 import numpy as np
@@ -46,7 +47,7 @@ def objective_xgboost(
         "reg_lambda": trial.suggest_float("reg_lambda", 1e-8, 1.0, log=True),
         "eval_metric": trial.suggest_categorical("eval_metric", ["auc", "aucpr", "logloss", "map"]),
         "objective": "binary:logistic",
-        "nthread": 8,
+        "nthread": os.cpu_count(),
         "scale_pos_weight": data.label.value_counts()[0] / data.label.value_counts()[1],
     }
     number_cv_fold = len(data.cv_split.unique())
