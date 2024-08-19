@@ -209,39 +209,39 @@ class DataBuilder:
 
     def _preprocess_peak(self, case_data: pd.DataFrame) -> pd.DataFrame:
         # remove too low value (before the start of the measurement)
-        case_data.mbp.mask(case_data.mbp < self.min_mbp_segment, inplace=True)
+        # case_data.mbp.mask(case_data.mbp < self.min_mbp_segment, inplace=True)
 
         # removing the nan values at the beginning and the ending
-        case_valid_mask = ~case_data.mbp.isna()
+        case_valid_mask = ~case_data.mbp < self.min_mbp_segment
         case_data = case_data[
             (np.cumsum(case_valid_mask) > 0)
             & (np.cumsum(case_valid_mask[::-1])[::-1] > 0)
         ].copy()
 
         # remove peaks on the mean arterial pressure
-        rolling_mean_mbp = case_data.mbp.rolling(
-            window=self.window_size_peak, center=True, min_periods=10
-        ).mean()
-        rolling_mean_sbp = case_data.sbp.rolling(
-            window=self.window_size_peak, center=True, min_periods=10
-        ).mean()
-        rolling_mean_dbp = case_data.dbp.rolling(
-            window=self.window_size_peak, center=True, min_periods=10
-        ).mean()
+        # rolling_mean_mbp = case_data.mbp.rolling(
+        #     window=self.window_size_peak, center=True, min_periods=10
+        # ).mean()
+        # rolling_mean_sbp = case_data.sbp.rolling(
+        #     window=self.window_size_peak, center=True, min_periods=10
+        # ).mean()
+        # rolling_mean_dbp = case_data.dbp.rolling(
+        #     window=self.window_size_peak, center=True, min_periods=10
+        # ).mean()
 
-        # Identify peaks based on the difference from the rolling mean
-        case_data.mbp.mask(
-            (case_data.mbp - rolling_mean_mbp).abs() > self.threshold_peak,
-            inplace=True,
-        )
-        case_data.sbp.mask(
-            (case_data.sbp - rolling_mean_sbp).abs() > self.threshold_peak * 1.5,
-            inplace=True,
-        )
-        case_data.dbp.mask(
-            (case_data.dbp - rolling_mean_dbp).abs() > self.threshold_peak,
-            inplace=True,
-        )
+        # # Identify peaks based on the difference from the rolling mean
+        # case_data.mbp.mask(
+        #     (case_data.mbp - rolling_mean_mbp).abs() > self.threshold_peak,
+        #     inplace=True,
+        # )
+        # case_data.sbp.mask(
+        #     (case_data.sbp - rolling_mean_sbp).abs() > self.threshold_peak * 1.5,
+        #     inplace=True,
+        # )
+        # case_data.dbp.mask(
+        #     (case_data.dbp - rolling_mean_dbp).abs() > self.threshold_peak,
+        #     inplace=True,
+        # )
 
         return case_data
 
@@ -259,7 +259,7 @@ class DataBuilder:
 
     def _preprocess(self, case_data: pd.DataFrame) -> pd.DataFrame:
         case_data.pp_ct.fillna(0, inplace=True)
-        _preprocess_functions = [self._smooth, self._preprocess_sampling, self._preprocess_peak, self.fillnan]
+        _preprocess_functions = [self._preprocess_sampling, self._preprocess_peak, self._smooth, self.fillnan]
 
         # NOTE: acc = accumulator
         return reduce(lambda acc, method: method(acc), _preprocess_functions, case_data)
@@ -292,7 +292,7 @@ class DataBuilder:
         self, segment: pd.DataFrame, previous_segment: pd.DataFrame
     ) -> bool:
         # Too low/high MBP
-        mbp = segment[: self.observation_window_length].mbp
+        mbp = segment.mbp
         if (mbp < self.min_mbp_segment).any() or (mbp > self.max_mbp_segment).any():
             return False
 
@@ -309,10 +309,10 @@ class DataBuilder:
                 continue
 
             threshold_percent = self.max_nan_segment
-            threshold_n_nans = threshold_percent * self.observation_window_length
+            threshold_n_nans = threshold_percent * self.segment_length
 
             if (
-                segment.iloc[: self.observation_window_length][signal].isnull().sum()
+                segment[signal].isnull().sum()
                 > threshold_n_nans
             ):
                 return False
@@ -327,8 +327,8 @@ class DataBuilder:
         for half_time in self.half_times:
             str_halt_time = str(half_time * self.sampling_time)
             for signal_name in self.signal_features_names:
-                pred_features = signal_name + "_pred_" + str_halt_time
-                # slope_features = signal_name + "_slope_" + str_halt_time
+                constant_features = signal_name + "_constant_" + str_halt_time
+                slope_features = signal_name + "_slope_" + str_halt_time
                 std_features = signal_name + "_std_" + str_halt_time
 
                 if half_time == 0:
@@ -339,9 +339,8 @@ class DataBuilder:
                         np.arange(-half_time, 0).reshape(-1, 1),
                         segment_observation[signal_name].iloc[-half_time:],
                     )
-                    next_y_pred = model.predict([[1]])
-                    column_to_features[pred_features] = (next_y_pred[0],)
-                    # column_to_features[slope_features] = (model.coef_[0],)
+                    column_to_features[constant_features] = (model.intercept_,)
+                    column_to_features[slope_features] = (model.coef_[0],)
                     y_pred = model.predict(np.arange(-half_time, 0).reshape(-1, 1))
                     error = segment_observation[signal_name].iloc[-half_time:] - y_pred
                     column_to_features[std_features] = (
