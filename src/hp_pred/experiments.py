@@ -53,7 +53,7 @@ def objective_xgboost(
     number_cv_fold = len(data.cv_split.unique())
     fold_number = 0
     # separate training in 3 folds
-    auc_scores = np.zeros(number_cv_fold)
+    ap_scores = np.zeros(number_cv_fold)
     assert (data.cv_split != 'test').all(), "cv_split should be 'cv_i' with i an integer, not test"
     for i, validate_data in data.groupby("cv_split", observed=True):
         # split the data
@@ -70,14 +70,11 @@ def objective_xgboost(
         # Make predictions
         y_pred = optuna_model.predict_proba(X_validate)[:, 1]
 
-        # Evaluate predictions
-        precision, recall, thr_pr = precision_event_recall(y_validate.values, y_pred, y_label_event.values)
-        auprc = auc(recall, precision)
-
-        auc_scores[fold_number] = auprc
+        # Evaluate predictions with AP score
+        ap_scores[fold_number] = average_precision_score(y_validate, y_pred)
         fold_number += 1
 
-    return auc_scores.mean()
+    return ap_scores.mean()
 
 
 def precision_event_recall(y_true: np.ndarray, y_pred: np.ndarray, label_id: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -192,7 +189,7 @@ def get_all_stats(
 
     if strategy == 'max_precision':
         # find the threshold that optimize the precision after a recall of 0.1
-        max_precision = np.max(precision[recall > 0.1])
+        max_precision = np.max(precision[recall > 0.02])
         id_thresh_opt_prc = int(np.argmin(np.abs(precision - max_precision)))
     elif strategy == 'targeted_precision':
         id_thresh_opt_prc = int(np.argmin(np.abs(precision - target)))
