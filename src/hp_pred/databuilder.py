@@ -213,7 +213,7 @@ class DataBuilder:
         case_data.mbp.mask(case_data.mbp > self.max_mbp_segment, inplace=True)
 
         # removing the nan values at the beginning and the ending
-        case_valid_mask = ~(case_data.mbp < self.min_mbp_segment)
+        case_valid_mask = ~case_data.mbp.isna()
         case_data = case_data[
             (np.cumsum(case_valid_mask) > 0)
             & (np.cumsum(case_valid_mask[::-1])[::-1] > 0)
@@ -246,13 +246,13 @@ class DataBuilder:
 
         return case_data
 
-    def _smooth(self, case_data: pd.DataFrame) -> pd.DataFrame:
+    def _preprocess_smooth(self, case_data: pd.DataFrame) -> pd.DataFrame:
         signals_to_smooth = [sign for sign in self.signal_features_names if sign != 'pp_ct']
         case_data[signals_to_smooth] = case_data[signals_to_smooth].rolling(
             window=self.smooth_period, min_periods=1).mean()
         return case_data
 
-    def fillnan(self, case_data: pd.DataFrame) -> pd.DataFrame:
+    def _preprocess_fillna(self, case_data: pd.DataFrame) -> pd.DataFrame:
         case_data.mbp = case_data.mbp.interpolate()
         case_data.sbp = case_data.sbp.interpolate()
         case_data.dbp = case_data.dbp.interpolate()
@@ -260,7 +260,8 @@ class DataBuilder:
 
     def _preprocess(self, case_data: pd.DataFrame) -> pd.DataFrame:
         case_data.pp_ct.fillna(0, inplace=True)
-        _preprocess_functions = [self._preprocess_sampling, self._preprocess_peak, self._smooth, self.fillnan]
+        _preprocess_functions = [self._preprocess_sampling, self._preprocess_peak,
+                                 self._preprocess_smooth, self._preprocess_fillna]
 
         # NOTE: acc = accumulator
         return reduce(lambda acc, method: method(acc), _preprocess_functions, case_data)
@@ -425,7 +426,7 @@ class DataBuilder:
             case_df.label_id.astype(str) + "_" + case_df.caseid.astype(str)
         )
 
-        filename = f"case{case_id}.parquet"
+        filename = f"case{case_id:04d}.parquet"
         parquet_file = self.cases_folder / filename
         case_df.columns = ['_'.join(map(str, col)) if isinstance(col, tuple) else col for col in case_df.columns]
         for col in case_df.columns:
