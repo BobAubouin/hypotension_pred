@@ -18,10 +18,14 @@ SIGNAL_FEATURE = ['mbp', 'sbp', 'dbp', 'hr', 'rr', 'spo2', 'etco2', 'mac', 'pp_c
 STATIC_FEATURE = ["age", "bmi", "asa"]
 HALF_TIME_FILTERING = [30, 3*60, 10*60]
 
-# import the data frame and add the meta data to the segments
-data = pd.read_parquet(Path('data/datasets/base_dataset/cases/'))
 
-static = pd.read_parquet('data/datasets/base_dataset/meta.parquet')
+dataset_folder = Path("data/datasets/30_s_dataset")
+model_filename = "xgb_30_s.json" 
+
+# import the data frame and add the meta data to the segments
+data = pd.read_parquet(dataset_folder / 'cases/')
+
+static = pd.read_parquet(dataset_folder / 'meta.parquet')
 
 data = data.merge(static, on='caseid')
 
@@ -67,6 +71,8 @@ FEATURE_NAME = (
     + STATIC_FEATURE
 )
 
+FEATURE_NAME = [x for x in FEATURE_NAME if "std_60" not in x]
+
 # create a regressor
 train = train.dropna(subset=FEATURE_NAME)
 test = test.dropna(subset=FEATURE_NAME)
@@ -80,7 +86,7 @@ print(
 model_folder = Path("data/models")
 if not model_folder.exists():
     model_folder.mkdir()
-model_file = model_folder / "xgb.json"
+model_file = model_folder / model_filename
 
 
 if model_file.exists():
@@ -117,8 +123,8 @@ if not result_folder.exists():
 file_results = result_folder / "xgboost_recall_fixed.csv"
 df_results.to_csv(file_results, index=False)
 
-df_results_2, tprs_interpolated, precision_interpolated = bootstrap_test(y_test, y_pred, y_label_ids, n_bootstraps=200, rng_seed=rng_seed, strategy="targeted_precision", target=0.75)
+df_results_2, tprs_interpolated, precision_interpolated = bootstrap_test(y_test, y_pred, y_label_ids, n_bootstraps=200, rng_seed=rng_seed, strategy="precision_max")
 
-file_results_2 = result_folder / "xgboost_precision_fixed.csv"
+file_results_2 = result_folder / "xgboost_precision_max.csv"
 df_results_2.to_csv(file_results_2, index=False)
 

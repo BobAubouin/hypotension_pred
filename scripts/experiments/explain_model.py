@@ -8,8 +8,11 @@ import xgboost as xgb
 
 
 nb_max_feature = 10
-model_file = 'data/models/xgb.json'
-database = 'base_dataset'
+model_file = 'data/models/xgb_30_s.json'
+database = '30_s_dataset'
+name_fig_1 = 'shap_xgboost_manu_for_chu.pdf'
+name_fig_2 = 'shap_xgboost_group_for_chu.pdf'
+
 output_folder = Path('output')
 output_folder.mkdir(exist_ok=True)
 
@@ -74,7 +77,7 @@ plt.tight_layout()
 #add horizontal line for each feture
 for i in range(nb_max_feature):
     plt.axhline(y=i, color='black', linestyle='--', linewidth=0.5)
-plt.savefig('./output/shap_xgboost_manu.pdf', bbox_inches='tight', dpi=300)
+plt.savefig(f'./output/{name_fig_1}', bbox_inches='tight', dpi=300)
 plt.close()
 
 print("SHAP values plotted")
@@ -147,7 +150,7 @@ ax.set_yticklabels([])
 for i in range(nb_max_feature):
     plt.axhline(y=i, color='black', linestyle='--', linewidth=0.5)
 plt.tight_layout()
-plt.savefig('./output/shap_xgboost_group.pdf', bbox_inches='tight', dpi=600)
+plt.savefig(f'./output/{name_fig_1}', bbox_inches='tight', dpi=600)
 plt.close()
 
 print("SHAP values grouped and plotted")
