@@ -7,11 +7,11 @@ def main():
     half_times = [30, 3*60, 10*60]
 
     databuilder = DataBuilder(
-        raw_data_folder_path="./data/cases",
+        raw_data_folder_path="./data/cases_chu",
         signal_features_names=signal_features_names,
-        static_data_path="./data/static_data.parquet",
+        static_data_path="./data/static_data_chu.parquet",
         static_data_names=static_features_names,
-        dataset_output_folder_path="./data/datasets/30_s_dataset",
+        dataset_output_folder_path="./data/datasets/chu_dataset",
         sampling_time=30,
         leading_time=2*60,
         prediction_window_length=8*60,
