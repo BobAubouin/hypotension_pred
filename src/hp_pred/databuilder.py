@@ -50,7 +50,7 @@ RECOVERY_TIME = 10 * 60  # recovery time after the IOH (in seconds)
 TOLERANCE_SEGMENT_SPLIT = 0.01  # tolerance for the segment split
 TOLERANCE_LABEL_SPLIT = 0.005  # tolerance for the label split
 N_MAX_ITER_SPLIT = 500_000  # maximum number of iteration for the split
-SMOOTH_PERIOD = 20  # period for the rolling mean in seconds
+SMOOTH_PERIOD = 40  # period for the rolling mean in seconds
 
 
 class DataBuilder:
@@ -90,7 +90,7 @@ class DataBuilder:
             "static_data_path": str(self.static_data_file),
             "dataset_output_folder_path": str(self.dataset_output_folder),
             "extract_features": self.extract_features,
-            "smooth_period": self.smooth_period,
+            "smooth_period": self.smooth_period * self.sampling_time,
         }
 
     def __init__(
@@ -146,7 +146,7 @@ class DataBuilder:
         self.max_mbp_segment = max_mbp_segment
         self.min_mbp_segment = min_mbp_segment
         self.threshold_peak = threshold_peak
-        self.smooth_period = smooth_period
+        self.smooth_period = smooth_period // sampling_time
         # End (Preprocess)
 
         # Segments parameters
@@ -426,7 +426,7 @@ class DataBuilder:
             case_df.label_id.astype(str) + "_" + case_df.caseid.astype(str)
         )
 
-        filename = f"case{case_id:04d}.parquet"
+        filename = f"case{int(case_id):04d}.parquet"
         parquet_file = self.cases_folder / filename
         case_df.columns = ['_'.join(map(str, col)) if isinstance(col, tuple) else col for col in case_df.columns]
         for col in case_df.columns:
