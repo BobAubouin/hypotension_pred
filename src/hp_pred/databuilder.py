@@ -337,6 +337,13 @@ class DataBuilder:
                     half_time = 2
                 else:
                     model = LinearRegression()
+                    X = np.arange(-half_time, 0).reshape(-1, 1)
+                    y = segment_observation[signal_name].iloc[-half_time:]
+                    # remove 0 from y
+                    if signal_name not in ["mac", "pp_ct"]:
+                        X = X[~y.isnull()]
+                        y = y[~y.isnull()]
+
                     model.fit(
                         np.arange(-half_time, 0).reshape(-1, 1),
                         segment_observation[signal_name].iloc[-half_time:],
