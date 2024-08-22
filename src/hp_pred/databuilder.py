@@ -333,7 +333,7 @@ class DataBuilder:
                 slope_features = signal_name + "_slope_" + str_halt_time
                 std_features = signal_name + "_std_" + str_halt_time
 
-                if half_time == 0:
+                if half_time < 2:
                     half_time = 2
                 else:
                     model = LinearRegression()
