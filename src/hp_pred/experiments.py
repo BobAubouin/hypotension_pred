@@ -9,6 +9,7 @@ from sklearn.metrics import auc, roc_curve, average_precision_score
 from hp_pred.databuilder import DataBuilder
 from optuna import Trial
 from tqdm import tqdm
+from imblearn.combine import SMOTEENN
 
 
 NUMBER_CV_FOLD = 3
@@ -61,6 +62,10 @@ def objective_xgboost(
 
         X_train = train_data[feature_name]
         y_train = train_data.label
+        sme = SMOTEENN(random_state=42)
+
+        X_train, y_train = sme.fit_resample(X_train, y_train)
+
         X_validate = validate_data[feature_name]
         y_validate = validate_data.label
         y_label_event = validate_data.label_id
@@ -195,6 +200,8 @@ def get_all_stats(
         id_thresh_opt_prc = int(np.argmin(np.abs(precision - target)))
     elif strategy == 'targeted_recall':
         id_thresh_opt_prc = int(np.argmin(np.abs(recall - target)))
+    elif strategy == 'fixed_threshold':
+        id_thresh_opt_prc = int(np.argmin(np.abs(thr_pr - target)))
 
     threshold_opt = thr_pr[id_thresh_opt_prc]
 
@@ -396,7 +403,7 @@ def bootstrap_test(
             "threshold_opt_std": threshold_opt_std,
         }
     )
-    return df, tprs_interpolated, precision_interpolated
+    return df, precision_interpolated, thrs_interpolated_precision
 
 
 def load_labelized_cases(
