@@ -11,6 +11,7 @@ import xgboost as xgb
 from sklearn.metrics import auc, roc_curve, precision_recall_curve, average_precision_score
 from imblearn.combine import SMOTEENN
 from imblearn.over_sampling import SMOTE
+from sklearn.neighbors import NearestNeighbors
 
 from hp_pred.experiments import bootstrap_test, objective_xgboost, precision_event_recall, load_labelized_cases, print_statistics
 
@@ -22,7 +23,7 @@ HALF_TIME_FILTERING = [60, 3*60, 10*60]
 
 
 dataset_folder = Path("data/datasets/30_s_dataset")
-model_filename = "xgb_30_s_smoteenn.json" 
+model_filename = "xgb_30_s_smoteenn.json"
 
 # import the data frame and add the meta data to the segments
 data = pd.read_parquet(dataset_folder / 'cases/')
@@ -95,21 +96,23 @@ if model_file.exists():
     model = xgb.XGBClassifier()
     model.load_model(model_file)
 else:
-    # creat an optuna study
+    # create an optuna study
 
     number_fold = len(data.cv_split.unique())
     data_train = [data[data.cv_split != i] for i in range(number_fold)]
     data_test = [data[data.cv_split == i] for i in range(number_fold)]
 
-    smt = SMOTE(random_state=rng_seed, n_jobs=-1, k_neighbors=5)
-    enn = SMOTEENN(random_state=rng_seed, n_jobs=-1, smote=smt)
+    neigh = NearestNeighbors(n_neighbors=5, n_jobs=-1)
+    smt = SMOTE(random_state=rng_seed, k_neighbors=neigh)
+    enn = SMOTEENN(random_state=rng_seed, smote=smt)
 
     for i in range(number_fold):
-        data_train[i] = enn.fit_resample(data_train[i][FEATURE_NAME], data_train[i].label)
-        data_train[i] = pd.DataFrame(data_train[i], columns=FEATURE_NAME + ["label"])
+        X, y = enn.fit_resample(data_train[i][FEATURE_NAME], data_train[i].label)
+        data_train[i] = pd.DataFrame(X, columns=FEATURE_NAME)
+        data_train[i]["label"] = y
 
         data_test[i] = data_test[i][FEATURE_NAME + ["label"]]
-
+        print(f"Smoteenn fold {i} done")
 
     study = optuna.create_study(direction="maximize")
     study.optimize(
