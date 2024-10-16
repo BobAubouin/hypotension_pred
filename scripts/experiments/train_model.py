@@ -77,7 +77,7 @@ FEATURE_NAME = (
 FEATURE_NAME = [x for x in FEATURE_NAME if f"std_{HALF_TIME_FILTERING[0]}" not in x]
 
 # create a regressor
-train = train.dropna(subset=FEATURE_NAME)
+train = train.dropna(subset=FEATURE_NAME)[::100]
 test = test.dropna(subset=FEATURE_NAME)
 print(
     f"{len(train):,d} train samples, "
@@ -99,20 +99,20 @@ else:
     # create an optuna study
 
     number_fold = len(train.cv_split.unique())
-    data_train_cv = [train[train.cv_split != i] for i in range(number_fold)]
-    data_test_cv = [train[train.cv_split == i] for i in range(number_fold)]
-
-    neigh = NearestNeighbors(n_neighbors=5, n_jobs=-1)
-    smt = SMOTE(random_state=rng_seed, k_neighbors=neigh)
-    enn = SMOTEENN(random_state=rng_seed, smote=smt)
+    data_train_cv = [train[train.cv_split != f'cv_{i}'] for i in range(number_fold)]
+    data_test_cv = [train[train.cv_split == f'cv_{i}'] for i in range(number_fold)]
 
     for i in range(number_fold):
+        print(f"init_prevalence: {data_train_cv[i].label.mean()}")
+        neigh = NearestNeighbors(n_neighbors=5, n_jobs=-1)
+        smt = SMOTE(random_state=rng_seed, k_neighbors=neigh, sampling_strategy=0.8)
+        enn = SMOTEENN(random_state=rng_seed, smote=smt)
         X, y = enn.fit_resample(data_train_cv[i][FEATURE_NAME], data_train_cv[i].label)
         data_train_cv[i] = pd.DataFrame(X, columns=FEATURE_NAME)
         data_train_cv[i]["label"] = y
 
         data_test_cv[i] = data_test_cv[i][FEATURE_NAME + ["label"]]
-        print(f"Smoteenn fold {i} done")
+        print(f"Smoteenn fold {i} done, new_prevalence: {y.mean()}")
 
     sampler = optuna.samplers.TPESampler(seed=rng_seed)
     study = optuna.create_study(direction="maximize", sampler=sampler)
