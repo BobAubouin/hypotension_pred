@@ -98,25 +98,26 @@ if model_file.exists():
 else:
     # create an optuna study
 
-    number_fold = len(data.cv_split.unique())
-    data_train = [data[data.cv_split != i] for i in range(number_fold)]
-    data_test = [data[data.cv_split == i] for i in range(number_fold)]
+    number_fold = len(train.cv_split.unique())
+    data_train_cv = [train[train.cv_split != i] for i in range(number_fold)]
+    data_test_cv = [train[train.cv_split == i] for i in range(number_fold)]
 
     neigh = NearestNeighbors(n_neighbors=5, n_jobs=-1)
     smt = SMOTE(random_state=rng_seed, k_neighbors=neigh)
     enn = SMOTEENN(random_state=rng_seed, smote=smt)
 
     for i in range(number_fold):
-        X, y = enn.fit_resample(data_train[i][FEATURE_NAME], data_train[i].label)
-        data_train[i] = pd.DataFrame(X, columns=FEATURE_NAME)
-        data_train[i]["label"] = y
+        X, y = enn.fit_resample(data_train_cv[i][FEATURE_NAME], data_train_cv[i].label)
+        data_train_cv[i] = pd.DataFrame(X, columns=FEATURE_NAME)
+        data_train_cv[i]["label"] = y
 
-        data_test[i] = data_test[i][FEATURE_NAME + ["label"]]
+        data_test_cv[i] = data_test_cv[i][FEATURE_NAME + ["label"]]
         print(f"Smoteenn fold {i} done")
 
-    study = optuna.create_study(direction="maximize")
+    sampler = optuna.samplers.TPESampler(seed=rng_seed)
+    study = optuna.create_study(direction="maximize", sampler=sampler)
     study.optimize(
-        lambda trial: objective_xgboost(trial, data_train, data_test),
+        lambda trial: objective_xgboost(trial, data_train_cv, data_test_cv),
         n_trials=150,
         show_progress_bar=True,
     )
