@@ -9,7 +9,7 @@ from sklearn.metrics import auc, roc_curve, average_precision_score
 from hp_pred.databuilder import DataBuilder
 from optuna import Trial
 from tqdm import tqdm
-from imblearn.combine import SMOTEENN
+
 
 
 NUMBER_CV_FOLD = 3
@@ -18,18 +18,16 @@ N_INTERPOLATION = 1000
 
 def objective_xgboost(
     trial: Trial,
-    data: pd.DataFrame,
-    feature_name: list[str],
+    data_train: list[pd.DataFrame],
+    data_test: list[pd.DataFrame],
 ) -> float:
     """
     Calculate the mean AUC score for XGBoost model using Optuna hyperparameter optimization.
 
     Args:
         trial (Trial): Optuna trial object for hyperparameter optimization.
-        data (pd.DataFrame): Input data for training and testing.
-        feature_name (list[str]): List of feature names.
-        cv_split (list[np.ndarray]): List of arrays containing indices for cross-validation splits.
-
+        data_train (list[pd.DataFrame]): List of training data sets.
+        data_test (list[pd.DataFrame]): List of testing data sets corresponding to the training data sets.
     Returns:
         float: Mean AUC score of the XGBoost model.
 
@@ -49,26 +47,22 @@ def objective_xgboost(
         "eval_metric": trial.suggest_categorical("eval_metric", ["auc", "aucpr", "logloss", "map"]),
         "objective": "binary:logistic",
         "nthread": os.cpu_count(),
-        "scale_pos_weight": data.label.value_counts()[0] / data.label.value_counts()[1],
+        # "scale_pos_weight": data.label.value_counts()[0] / data.label.value_counts()[1],
     }
-    number_cv_fold = len(data.cv_split.unique())
+    number_cv_fold = len(data_train)
+    assert number_cv_fold == len(data_test), "The number of training and testing data set should be the same."
+
     fold_number = 0
     # separate training in 3 folds
     ap_scores = np.zeros(number_cv_fold)
-    assert (data.cv_split != 'test').all(), "cv_split should be 'cv_i' with i an integer, not test"
-    for i, validate_data in data.groupby("cv_split", observed=True):
-        # split the data
-        train_data = data[~data.cv_split.isin([i])]
+    feature_name = data_train[0].columns[:-1]
+    for i in range(number_cv_fold):
 
-        X_train = train_data[feature_name]
-        y_train = train_data.label
-        sme = SMOTEENN(random_state=42)
+        X_train = data_train[i][feature_name]
+        y_train = data_train [i].label
 
-        X_train, y_train = sme.fit_resample(X_train, y_train)
-
-        X_validate = validate_data[feature_name]
-        y_validate = validate_data.label
-        y_label_event = validate_data.label_id
+        X_validate = data_test[i][feature_name]
+        y_validate = data_test[i].label
 
         optuna_model = XGBClassifier(**params)
         optuna_model.fit(X_train, y_train)

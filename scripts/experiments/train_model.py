@@ -9,6 +9,8 @@ import scipy.stats
 import shap
 import xgboost as xgb
 from sklearn.metrics import auc, roc_curve, precision_recall_curve, average_precision_score
+from imblearn.combine import SMOTEENN
+from imblearn.over_sampling import SMOTE
 
 from hp_pred.experiments import bootstrap_test, objective_xgboost, precision_event_recall, load_labelized_cases, print_statistics
 
@@ -16,11 +18,11 @@ optuna.logging.set_verbosity(optuna.logging.WARNING)
 
 SIGNAL_FEATURE = ['mbp', 'sbp', 'dbp', 'hr', 'rr', 'spo2', 'etco2', 'mac', 'pp_ct']
 STATIC_FEATURE = ["age", "bmi", "asa"]
-HALF_TIME_FILTERING = [30, 3*60, 10*60]
+HALF_TIME_FILTERING = [60, 3*60, 10*60]
 
 
 dataset_folder = Path("data/datasets/30_s_dataset")
-model_filename = "xgb_30_s.json"
+model_filename = "xgb_30_s_smoteenn.json" 
 
 # import the data frame and add the meta data to the segments
 data = pd.read_parquet(dataset_folder / 'cases/')
@@ -71,7 +73,7 @@ FEATURE_NAME = (
     + STATIC_FEATURE
 )
 
-FEATURE_NAME = [x for x in FEATURE_NAME if "std_30" not in x]
+FEATURE_NAME = [x for x in FEATURE_NAME if f"std_{HALF_TIME_FILTERING[0]}" not in x]
 
 # create a regressor
 train = train.dropna(subset=FEATURE_NAME)
@@ -94,10 +96,25 @@ if model_file.exists():
     model.load_model(model_file)
 else:
     # creat an optuna study
+
+    number_fold = len(data.cv_split.unique())
+    data_train = [data[data.cv_split != i] for i in range(number_fold)]
+    data_test = [data[data.cv_split == i] for i in range(number_fold)]
+
+    smt = SMOTE(random_state=rng_seed, n_jobs=-1, k_neighbors=5)
+    enn = SMOTEENN(random_state=rng_seed, n_jobs=-1, smote=smt)
+
+    for i in range(number_fold):
+        data_train[i] = enn.fit_resample(data_train[i][FEATURE_NAME], data_train[i].label)
+        data_train[i] = pd.DataFrame(data_train[i], columns=FEATURE_NAME + ["label"])
+
+        data_test[i] = data_test[i][FEATURE_NAME + ["label"]]
+
+
     study = optuna.create_study(direction="maximize")
     study.optimize(
-        lambda trial: objective_xgboost(trial, train, FEATURE_NAME),
-        n_trials=100,
+        lambda trial: objective_xgboost(trial, data_train, data_test),
+        n_trials=150,
         show_progress_bar=True,
     )
 
@@ -124,8 +141,8 @@ if not result_folder.exists():
 file_results = result_folder / "xgboost_recall_fixed.csv"
 df_results.to_csv(file_results, index=False)
 
-df_results_2, tprs_interpolated, precision_interpolated = bootstrap_test(
-    y_test, y_pred, y_label_ids, n_bootstraps=200, rng_seed=rng_seed, strategy="precision_max")
+# df_results_2, tprs_interpolated, precision_interpolated = bootstrap_test(
+#     y_test, y_pred, y_label_ids, n_bootstraps=200, rng_seed=rng_seed, strategy="precision_max")
 
-file_results_2 = result_folder / "xgboost_precision_max.csv"
-df_results_2.to_csv(file_results_2, index=False)
+# file_results_2 = result_folder / "xgboost_precision_max.csv"
+# df_results_2.to_csv(file_results_2, index=False)

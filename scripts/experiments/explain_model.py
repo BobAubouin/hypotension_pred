@@ -8,17 +8,17 @@ import xgboost as xgb
 
 
 nb_max_feature = 10
-model_file = 'data/models/xgb_30_s.json'
-database = '30_s_dataset'
-name_fig_1 = 'shap_xgboost_manu_for_chu.pdf'
-name_fig_2 = 'shap_xgboost_group_for_chu.pdf'
+model_file = 'data/models/xgb.json'
+database = 'base_dataset'
+name_fig_1 = 'shap_xgboost_manu.pdf'
+name_fig_2 = 'shap_xgboost_group.pdf'
 
 output_folder = Path('output')
 output_folder.mkdir(exist_ok=True)
 
 SIGNAL_FEATURE = ['mbp', 'sbp', 'dbp', 'hr', 'rr', 'spo2', 'etco2', 'mac', 'pp_ct']
 STATIC_FEATURE = ["age", "bmi", "asa"]
-HALF_TIME_FILTERING = [30, 3*60, 10*60]
+HALF_TIME_FILTERING = [60, 3*60, 10*60]
 FEATURE_NAME = (
     [
         f"{signal}_constant_{half_time}"
