@@ -155,6 +155,7 @@ def filter_case_ids(cases: pd.DataFrame, tracks_meta: pd.DataFrame) -> list[int]
         (cases_with_mbp.age > AGE_CASE_THRESHOLD)
         & (cases_with_mbp.caseend > CASEEND_CASE_THRESHOLD)
         & (~cases_with_mbp.opname.str.contains(FORBIDDEN_OPNAME_CASE, case=False))
+        & (~cases_with_mbp.optype.str.contains(FORBIDDEN_OPNAME_CASE, case=False))
         & (cases_with_mbp.emop == 0)
         & (
             (cases_with_mbp.intraop_ebl < BLOOD_LOSS_THRESHOLD)
