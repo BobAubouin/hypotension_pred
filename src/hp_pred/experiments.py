@@ -1,6 +1,7 @@
 from pathlib import Path
 import multiprocessing as mp
 import os
+from typing import Dict, List, Tuple
 
 import pandas as pd
 import numpy as np
@@ -9,7 +10,7 @@ from sklearn.metrics import auc, roc_curve, average_precision_score
 from hp_pred.databuilder import DataBuilder
 from optuna import Trial
 from tqdm import tqdm
-
+from scipy.stats import shapiro
 
 
 NUMBER_CV_FOLD = 3
@@ -59,7 +60,7 @@ def objective_xgboost(
     for i in range(number_cv_fold):
 
         X_train = data_train[i][feature_name]
-        y_train = data_train [i].label
+        y_train = data_train[i].label
 
         X_validate = data_test[i][feature_name]
         y_validate = data_test[i].label
@@ -275,7 +276,7 @@ def bootstrap_test(
     rng_seed: int = 42,
     strategy: str = "max_precision",
     target: float = None,
-) -> tuple[pd.DataFrame, np.ndarray]:
+) -> tuple[Dict[str, pd.DataFrame], np.ndarray]:
     """
     Perform bootstrap testing for evaluating a regression model's performance.
 
@@ -293,7 +294,6 @@ def bootstrap_test(
     seeds = np.random.randint(0, np.iinfo(np.int32).max, size=n_bootstraps)
 
     # for each subgoup of data, create a regressor and evaluate it
-    n_bootstraps = 200
     xs_interpolation = np.linspace(0, 1, N_INTERPOLATION)
     recall_levels = np.linspace(0, 1, N_INTERPOLATION)
 
@@ -353,51 +353,24 @@ def bootstrap_test(
         precision_interpolated[i] = precision_interpolated_
         thrs_interpolated_precision[i] = thr_pr_interpolated
 
-    tpr_mean, tpr_std = tprs_interpolated.mean(0), tprs_interpolated.std(0)
-    precision_mean, precision_std = precision_interpolated.mean(0), precision_interpolated.std(0)
-    thr_recall_mean = thrs_interpolated.mean(0)
-    thr_mean = thrs_interpolated.mean(0)
-    npv_mean, npv_std = npvs.mean(), npvs.std()
-    auc_mean, auc_std = aucs.mean(), aucs.std()
-    ap_mean, ap_std = aps.mean(), aps.std()
-    specificity_mean, specificity_std = specificities.mean(), specificities.std()
-    auprc_mean, auprc_std = auprcs.mean(), auprcs.std()
-    precision_threshold_mean, precision_threshold_std = precision_thresholds.mean(), precision_thresholds.std()
-    recall_threshold_mean, recall_threshold_std = recall_thresholds.mean(), recall_thresholds.std()
-    f1_mean, f1_std = f1s.mean(), f1s.std()
-    threshold_opt_mean, threshold_opt_std = threshold_opts.mean(), threshold_opts.std()
-
-    df = pd.DataFrame(
-        {
-            "fpr": xs_interpolation,
-            "tpr": tpr_mean,
-            "tpr_std": tpr_std,
-            "threshold": thr_mean,
-            "auc": auc_mean,
-            "auc_std": auc_std,
-            "specificity": specificity_mean,
-            "specificity_std": specificity_std,
-            "npv": npv_mean,
-            "npv_std": npv_std,
-            "recall": recall_levels,
-            "precision": precision_mean,
-            "precision_std": precision_std,
-            "thr_precision": thr_recall_mean,
-            "ap": ap_mean,
-            "ap_std": ap_std,
-            "auprc": auprc_mean,
-            "auprc_std": auprc_std,
-            "precision_threshold": precision_threshold_mean,
-            "precision_threshold_std": precision_threshold_std,
-            "recall_threshold": recall_threshold_mean,
-            "recall_threshold_std": recall_threshold_std,
-            "f1": f1_mean,
-            "f1_std": f1_std,
-            "threshold_opt": threshold_opt_mean,
-            "threshold_opt_std": threshold_opt_std,
-        }
-    )
-    return df, precision_interpolated, thrs_interpolated_precision
+    dict = {
+        "fprs": xs_interpolation,
+        "tpr": tprs_interpolated,
+        "threshold": thr_interpolated,
+        "aucs": aucs,
+        "specificity": specificities,
+        "npvs": npvs,
+        "recall": recall_levels,
+        "precision": precision_interpolated,
+        "thr_precision": thrs_interpolated_precision,
+        "aps": aps,
+        "auprcs": auprcs,
+        "precision_threshold": precision_thresholds,
+        "recall_threshold": recall_thresholds,
+        "f1": f1s,
+        "threshold_opt": threshold_opts,
+    }
+    return dict, precision_interpolated, thrs_interpolated_precision
 
 
 def load_labelized_cases(
@@ -423,20 +396,47 @@ def load_labelized_cases(
     return preprocess_case
 
 
-def print_statistics(df: pd.DataFrame) -> None:
+def print_one_stat(series: pd.Series, percent: bool = False) -> bool:
+    """ Test if a series is normally distributed using the Shapiro-Wilk test.
+
+    If it is return mean (sd), otherwise return median (Q1, Q3).
+    I percent is True, the values are returned as percentages.
+
+    Args:
+        series (pd.Series): Series to test.
+
+    Returns:
+        bool: True if the series is normally distributed, False otherwise.
+    """
+    stat, p = shapiro(series)
+    if p > 0.05:
+        if percent:
+            return f"{series.mean():.1%} ({series.std():.1%})"
+        else:
+            return f"{series.mean():.2f} ({series.std():.2f})"
+    else:
+        if percent:
+            return f"{series.median():.1%} [{series.quantile(0.25):.1%}, {series.quantile(0.75):.1%}]"
+        else:
+            return f"{series.median():.2f} [{series.quantile(0.25):.2f}, {series.quantile(0.75):.2f}]"
+
+
+def print_statistics(dict: Dict[str, pd.DataFrame]) -> None:
     """
     Print the evaluation statistics of the model.
     Args:
         df (pd.DataFrame): DataFrame containing the evaluation metrics.
     """
-    print(f"AUC: {df.auc.iloc[-1]:.1%} ± {df.auc_std.iloc[-1]:.1%}")
-
-    print(f"AP: {df.ap.iloc[-1]:.1%} ± {df.ap_std.iloc[-1]:.1%}")
-    print(f"AUPRC: {df.auprc.iloc[-1]:.1%} ± {df.auprc_std.iloc[-1]:.1%}")
-    print(f"Threshold: {df.threshold_opt.iloc[-1]:.2f} ± {df.threshold_opt_std.iloc[-1]:.2f}")
-    print(f"Recall: {df.recall_threshold.iloc[-1]:.1%} ± {df.recall_threshold_std.iloc[-1]:.1%}")
-    print(f"Precision: {df.precision_threshold.iloc[-1]:.1%} ± {df.precision_threshold_std.iloc[-1]:.1%}")
-    print(f"Specificity: {df.specificity.iloc[-1]:.1%} ± {df.specificity_std.iloc[-1]:.1%}")
-    print(f"NPV: {df.npv.iloc[-1]:.1%} ± {df.npv_std.iloc[-1]:.1%}")
-    print(f"F1-score: {df.f1.iloc[-1]:.2f} ± {df.f1_std.iloc[-1]:.2f}")
+    df = pd.DataFrame()
+    for key in ["aucs", "aps", "auprcs", "threshold_opt", "recall_threshold", "precision_threshold", "specificity", "npvs", "f1"]:
+        df[key] = dict[key]
+    print(f"AUC: {print_one_stat(df.aucs, False)}")
+    print(f"AP: {print_one_stat(df.aps, False)}")
+    print(f"AUPRC: {print_one_stat(df.auprcs, False)}")
+    print(f"Threshold: {print_one_stat(df.threshold_opt, False)}")
+    print(f"Recall: {print_one_stat(df.recall_threshold, True)}")
+    print(f"Precision: {print_one_stat(df.precision_threshold, True)}")
+    print(f"Specificity: {print_one_stat(df.specificity, True)}")
+    print(f"NPV: {print_one_stat(df.npvs, True)}")
+    print(f"F1-score: {print_one_stat(df.f1, True)}")
     return

@@ -77,7 +77,7 @@ FEATURE_NAME = (
 FEATURE_NAME = [x for x in FEATURE_NAME if f"std_{HALF_TIME_FILTERING[0]}" not in x]
 
 # create a regressor
-train = train.dropna(subset=FEATURE_NAME)[::100]
+train = train.dropna(subset=FEATURE_NAME)
 test = test.dropna(subset=FEATURE_NAME)
 print(
     f"{len(train):,d} train samples, "

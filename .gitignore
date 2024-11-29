@@ -13,6 +13,7 @@ venv/
 
 # Data folder
 data/
+output/
 
 # temp file of latex
 report/root.*
