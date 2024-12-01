@@ -101,24 +101,12 @@ else:
     number_fold = len(train.cv_split.unique())
     data_train_cv = [train[train.cv_split != f'cv_{i}'] for i in range(number_fold)]
     data_test_cv = [train[train.cv_split == f'cv_{i}'] for i in range(number_fold)]
-
-    for i in range(number_fold):
-        print(f"init_prevalence: {data_train_cv[i].label.mean()}")
-        neigh = NearestNeighbors(n_neighbors=5, n_jobs=-1)
-        smt = SMOTE(random_state=rng_seed, k_neighbors=neigh, sampling_strategy=0.8)
-        enn = SMOTEENN(random_state=rng_seed, smote=smt)
-        X, y = enn.fit_resample(data_train_cv[i][FEATURE_NAME], data_train_cv[i].label)
-        data_train_cv[i] = pd.DataFrame(X, columns=FEATURE_NAME)
-        data_train_cv[i]["label"] = y
-
-        data_test_cv[i] = data_test_cv[i][FEATURE_NAME + ["label"]]
-        print(f"Smoteenn fold {i} done, new_prevalence: {y.mean()}")
-
+    # creat an optuna study
     sampler = optuna.samplers.TPESampler(seed=rng_seed)
     study = optuna.create_study(direction="maximize", sampler=sampler)
     study.optimize(
-        lambda trial: objective_xgboost(trial, data_train_cv, data_test_cv),
-        n_trials=150,
+        lambda trial: objective_xgboost(trial, data_train_cv, data_test_cv, FEATURE_NAME),
+        n_trials=100,
         show_progress_bar=True,
     )
 
