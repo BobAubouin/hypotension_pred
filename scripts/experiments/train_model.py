@@ -1,19 +1,11 @@
-from itertools import chain, repeat
 from pathlib import Path
+import pickle
 
-import matplotlib.pyplot as plt
-import numpy as np
 import optuna
 import pandas as pd
-import scipy.stats
-import shap
 import xgboost as xgb
-from sklearn.metrics import auc, roc_curve, precision_recall_curve, average_precision_score
-from imblearn.combine import SMOTEENN
-from imblearn.over_sampling import SMOTE
-from sklearn.neighbors import NearestNeighbors
 
-from hp_pred.experiments import bootstrap_test, objective_xgboost, precision_event_recall, load_labelized_cases, print_statistics
+from hp_pred.experiments import bootstrap_test, objective_xgboost
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
@@ -120,21 +112,17 @@ else:
     # save the model
     model.save_model(model_file)
 
-y_pred = model.predict_proba(test[FEATURE_NAME])[:, 1]
+y_pred = model.predict_proba(test[FEATURE_NAME])
 y_test = test["label"].to_numpy()
 y_label_ids = test["label_id"].to_numpy()
 
-df_results, tprs_interpolated, precision_interpolated = bootstrap_test(
-    y_test, y_pred, y_label_ids, n_bootstraps=200, rng_seed=rng_seed, strategy="targeted_recall", target=0.406)
+
+dict_results, tprs_interpolated, precision_interpolated = bootstrap_test(
+    y_test, y_pred, y_label_ids, n_bootstraps=200, rng_seed=rng_seed, strategy="targeted_recall", target=0.24)
 
 result_folder = Path("data/results")
 if not result_folder.exists():
-    result_folder.mkdir()
-file_results = result_folder / "xgboost_recall_fixed.csv"
-df_results.to_csv(file_results, index=False)
-
-# df_results_2, tprs_interpolated, precision_interpolated = bootstrap_test(
-#     y_test, y_pred, y_label_ids, n_bootstraps=200, rng_seed=rng_seed, strategy="precision_max")
-
-# file_results_2 = result_folder / "xgboost_precision_max.csv"
-# df_results_2.to_csv(file_results_2, index=False)
+    result_folder.exists()
+roc_results = result_folder / "xgboost_roc_30_s.pkl"
+with roc_results.open("wb") as f:
+    pickle.dump(dict_results, f)
