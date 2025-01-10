@@ -320,6 +320,8 @@ class DataBuilder:
         return label, label_id
 
     def detect_intervention(self, segment: pd.DataFrame) -> bool:
+        # remove part of the segment after label==1 to only consider intervention before possible IOH
+        segment = segment.loc[: segment.label.idxmax()]
         for drug in INTERVENTION_DRUGS:
             if drug not in segment.columns:
                 continue
