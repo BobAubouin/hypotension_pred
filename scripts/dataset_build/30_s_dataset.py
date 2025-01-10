@@ -2,7 +2,7 @@ from hp_pred.databuilder import DataBuilder
 
 
 def main():
-    signal_features_names = ['mbp', 'sbp', 'dbp', 'hr', 'rr', 'spo2', 'etco2', 'mac', 'pp_ct']
+    signal_features_names = ['mbp', 'sbp', 'dbp', 'hr', 'rr', 'spo2', 'etco2', 'mac', 'pp_ct', 'rf_ct', 'body_temp']
     static_features_names = ["age", "bmi", "asa"]
     half_times = [60, 3*60, 10*60]
 
@@ -11,7 +11,7 @@ def main():
         signal_features_names=signal_features_names,
         static_data_path="./data/static_data.parquet",
         static_data_names=static_features_names,
-        dataset_output_folder_path="./data/datasets/30_s_dataset",
+        dataset_output_folder_path="./data/datasets/30_s_filtered_dataset",
         sampling_time=30,
         leading_time=2*60,
         prediction_window_length=8*60,

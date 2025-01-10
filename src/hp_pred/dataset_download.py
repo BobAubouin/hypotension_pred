@@ -2,12 +2,13 @@ import argparse
 import asyncio
 import datetime
 import logging
+import fnmatch
 from pathlib import Path
+from typing import Tuple
 
 import pandas as pd
-import numpy as np
 
-from hp_pred.constants import VITAL_API_BASE_URL
+from hp_pred.constants import VITAL_API_BASE_URL, WAV_TRACK
 from hp_pred.data_retrieve_async import retrieve_tracks_raw_data_async
 from hp_pred.tracks_config import (
     STATIC_DATA_NAMES,
@@ -21,12 +22,12 @@ CASE_INFO_URL = f"{VITAL_API_BASE_URL}/cases"
 
 # Filter constants
 TRACK_NAME_MBP = "Solar8000/ART_MBP"
-# Duration in seconds
 CASEEND_CASE_THRESHOLD = 3600  # seconds
 FORBIDDEN_OPNAME_CASE = "transplant"
 PERCENT_MISSING_DATA_THRESHOLD = 0.2
 AGE_CASE_THRESHOLD = 18  # years
-BLOOD_LOSS_THRESHOLD = 400  # mL
+BLOOD_LOSS_THRESHOLD = 200  # mL
+BOLUS_THRESHOLD = 20  # mg
 
 PARQUET_SUBFOLDER_NAME = "cases"
 BASE_FILENAME_DATASET = "cases_data"
@@ -156,6 +157,10 @@ def filter_case_ids(cases: pd.DataFrame, tracks_meta: pd.DataFrame) -> list[int]
         & (cases_with_mbp.caseend > CASEEND_CASE_THRESHOLD)
         & (~cases_with_mbp.opname.str.contains(FORBIDDEN_OPNAME_CASE, case=False))
         & (~cases_with_mbp.optype.str.contains(FORBIDDEN_OPNAME_CASE, case=False))
+        & (cases_with_mbp.intraop_eph <= BOLUS_THRESHOLD)
+        & (cases_with_mbp.intraop_phe <= BOLUS_THRESHOLD)
+        & (cases_with_mbp.intraop_epi <= BOLUS_THRESHOLD)
+        & (cases_with_mbp.intraop_mdz <= BOLUS_THRESHOLD)
         & (cases_with_mbp.emop == 0)
         & (
             (cases_with_mbp.intraop_ebl < BLOOD_LOSS_THRESHOLD)
@@ -175,7 +180,7 @@ def filter_case_ids(cases: pd.DataFrame, tracks_meta: pd.DataFrame) -> list[int]
     return filtered_case_ids
 
 
-def retrieve_tracks_raw_data(tracks_meta: pd.DataFrame) -> pd.DataFrame:
+def retrieve_tracks_raw_data(tracks_meta: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Use the `hp_pred.data_retrieve_async` module to get new data.
     Plus concatenate all the track, set types for track and caseid.
@@ -189,33 +194,72 @@ def retrieve_tracks_raw_data(tracks_meta: pd.DataFrame) -> pd.DataFrame:
     """
     logger.debug("Retrieve data from VitalDB API: Start")
 
-    tracks_url_and_case_id = [
+    logger.debug("Retrieve data from VitalDB API: Separate wave and numeric tracks")
+
+    track_name = tracks_meta.tname.unique()
+    wave_name = [track for track in track_name if any(
+        fnmatch.fnmatch(track, pattern) for pattern in WAV_TRACK)]
+    num_name = [track for track in track_name if track not in wave_name]
+
+    num_meta = tracks_meta[tracks_meta.tname.isin(num_name)]
+
+    num_url_and_case_id = [
         (f"/{track.tid}", int(track.caseid))  # type: ignore
-        for track in tracks_meta.itertuples(index=False)
+        for track in num_meta.itertuples(index=False)
     ]
 
-    logger.debug("Retrieve data from VitalDB API: Start async jobs")
-    tracks_raw_data = asyncio.run(
-        retrieve_tracks_raw_data_async(tracks_url_and_case_id)
+    logger.debug("Retrieve data from VitalDB API: Start async jobs for num tracks")
+    nums_raw_data = asyncio.run(
+        retrieve_tracks_raw_data_async(num_url_and_case_id)
     )
-    logger.debug("Retrieve data from VitalDB API: End async jobs")
+    logger.debug("Retrieve data from VitalDB API: End async jobs for num tracks")
 
-    tracks_raw_data = pd.concat(tracks_raw_data)
-    tracks_raw_data.caseid = tracks_raw_data.caseid.astype("UInt16")
+    nums_raw_data = pd.concat(nums_raw_data)
+    nums_raw_data.caseid = nums_raw_data.caseid.astype("UInt16")
     track_name_to_dtype = {
         column: "Float32"
-        for column in tracks_raw_data.columns
+        for column in nums_raw_data.columns
         if column not in ["caseid", "Time"]
     }
-    tracks_raw_data = tracks_raw_data.astype(track_name_to_dtype)
+    nums_raw_data = nums_raw_data.astype(track_name_to_dtype)
     logger.debug("Retrieve data from VitalDB API: Cast data types")
 
+    logger.debug("Retrieve data from VitalDB API: End for num tracks")
+
+    if wave_name is not None:
+        wave_meta = tracks_meta[tracks_meta.tname.isin(wave_name)]
+        wave_url_and_case_id = [
+            (f"/{track.tid}", int(track.caseid))  # type: ignore
+            for track in wave_meta.itertuples(index=False)
+        ]
+        logger.debug("Retrieve data from VitalDB API: Start async jobs for wave tracks")
+        wave_raw_data = asyncio.run(
+            retrieve_tracks_raw_data_async(wave_url_and_case_id)
+        )
+        logger.debug("Retrieve data from VitalDB API: End async jobs for wave tracks")
+
+        wave_raw_data = pd.concat(wave_raw_data)
+        wave_raw_data.caseid = wave_raw_data.caseid.astype("UInt16")
+        track_name_to_dtype = {
+            column: "Float32"
+            for column in wave_raw_data.columns
+            if column not in ["caseid", "Time"]
+        }
+        wave_raw_data = wave_raw_data.astype(track_name_to_dtype)
+        logger.debug("Retrieve data from VitalDB API: Cast data types")
+
+        logger.debug("Retrieve data from VitalDB API: End for wave tracks")
+    else:
+        wave_raw_data = pd.DataFrame()
+
     logger.debug("Retrieve data from VitalDB API: End")
-    return tracks_raw_data
+
+    return nums_raw_data, wave_raw_data
 
 
 def format_track_raw_data_wav(track_raw_data: pd.DataFrame) -> pd.DataFrame:
     logger.debug("Data formatting: Enter WAV formatting")
+    return track_raw_data
 
 
 def format_track_raw_data_num(tracks_raw_data: pd.DataFrame) -> pd.DataFrame:
@@ -244,28 +288,6 @@ def format_track_raw_data_num(tracks_raw_data: pd.DataFrame) -> pd.DataFrame:
     logger.debug("Data formatting: One value of Time per case ID")
 
     return tracks
-
-
-def format_time_track_raw_data(tracks_raw_data: pd.DataFrame) -> pd.DataFrame:
-    """
-    Format the track's raw data. It chooses between the numeric and the wave formats.
-
-    Args:
-        track_raw_data (pd.DataFrame): Raw data retrieved from the VitalDB API.
-
-    Returns:
-        pd.DataFrame: Track data with integer Time and fewer NaN.
-    """
-    logger.debug("Data formatting: Start")
-
-    formatted_tracks = (
-        format_track_raw_data_wav(tracks_raw_data)
-        if tracks_raw_data.Time.hasnans
-        else format_track_raw_data_num(tracks_raw_data)
-    )
-
-    logger.debug("Data formatting: End")
-    return formatted_tracks
 
 
 def to_parquet(tracks: pd.DataFrame, output_folder: Path) -> None:
@@ -312,6 +334,8 @@ def build_dataset(
     logger.debug("Build dataset: Start")
     case_ids = filter_case_ids(cases, tracks_meta)
 
+    case_ids = case_ids  # for debugging
+
     track_names = get_track_names()
     tracks_meta = tracks_meta[
         tracks_meta.tname.isin(track_names) & tracks_meta.caseid.isin(case_ids)
@@ -328,21 +352,29 @@ def build_dataset(
     )
 
     (output_folder / PARQUET_SUBFOLDER_NAME).mkdir(exist_ok=True)
+    (output_folder / "wav").mkdir(exist_ok=True)
+    (output_folder / "wav" / PARQUET_SUBFOLDER_NAME).mkdir(exist_ok=True)
     for i, case_ids_group in enumerate(case_ids_groups):
-        logger.debug(f"Buid dataset: Group {i}")
+        logger.info(f"Buid dataset: Group {i} out of {len(case_ids_groups)}")
         tracks_meta_group = tracks_meta[tracks_meta.caseid.isin(case_ids_group)]
 
         # HTTP requests handled with asynchronous calls
-        tracks_raw_data = retrieve_tracks_raw_data(tracks_meta_group)
+        num_raw_data, wave_raw_data = retrieve_tracks_raw_data(tracks_meta_group)
 
         # Handle timestamp, index
-        tracks = format_time_track_raw_data(tracks_raw_data)
+        num_tracks = format_track_raw_data_num(num_raw_data)
+        wave_tracks = format_track_raw_data_wav(wave_raw_data)
 
         # To parquet files
-        to_parquet(tracks, output_folder)
+        logger.debug(f"Save num tracks for group {i}")
+        to_parquet(num_tracks, output_folder)
 
-    del tracks_meta, tracks
-    tracks = pd.read_parquet((output_folder / PARQUET_SUBFOLDER_NAME))
+        if not wave_tracks.empty:
+            # To parquet files
+            logger.debug(f"Save WAV tracks for group {i}")
+            to_parquet(wave_tracks, output_folder / "wav")
+
+    del tracks_meta, num_tracks, wave_tracks, num_raw_data, wave_raw_data
     logger.debug("Build dataset: Load the whole dataset")
 
     cases = cases[cases.caseid.isin(case_ids)]
@@ -350,7 +382,7 @@ def build_dataset(
     logger.debug("Build dataset: Static data created")
 
     logger.debug("Build dataset: End")
-    return tracks, static_data
+    return static_data
 
 
 def main():
@@ -365,10 +397,7 @@ def main():
     cases = pd.read_csv(CASE_INFO_URL)
     logger.debug("Retrieve meta data and cases data from VitalDB: End")
 
-    dataset, static_data = build_dataset(tracks_meta, cases, group_size, output_folder)
-
-    dataset_file = output_folder / f"{BASE_FILENAME_DATASET}.parquet"
-    dataset.to_parquet(dataset_file, index=False)
+    static_data = build_dataset(tracks_meta, cases, group_size, output_folder)
 
     static_data_file = output_folder / f"{BASE_FILENAME_STATIC_DATA}.parquet"
     static_data.to_parquet(static_data_file, index=False)

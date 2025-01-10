@@ -23,9 +23,36 @@ RAW_FEATURES_NAME_TO_NEW_NAME = {
     "Solar8000/RR_CO2": "rr",
     "Solar8000/PLETH_SPO2": "spo2",
     "Solar8000/ETCO2": "etco2",
+    "Solar8000/BT": "body_temp",
     "Orchestra/PPF20_CT": "pp_ct",
+    "Orchestra/RFTN20_CT": "rf_ct",
+    "Orchestra/VASO_RATE": "vaso_rate",
+    "Orchestra/PHEN_RATE": "phen_rate",
+    "Orchestra/NEPI_RATE": "nepi_rate",
+    "Orchestra/EPI_RATE": "epi_rate",
+    "Orchestra/DOPA_RATE": "dopa_rate",
+    "Orchestra/DOBU_RATE": "dobu_rate",
+    "Orchestra/DTZ_RATE": "dtz_rate",
+    "Orchestra/NTG_RATE": "ntg_rate",
+    "Orchestra/NPS_RATE": "nps_rate",
     "Primus/MAC": "mac",
 }
+
+INTERVENTION_DRUGS = [
+    "pp_ct",
+    "rf_ct",
+    "vaso_rate",
+    "phen_rate",
+    "nepi_rate",
+    "epi_rate",
+    "dopa_rate",
+    "dobu_rate",
+    "dtz_rate",
+    "ntg_rate",
+    "nps_rate",
+    "mac",
+]
+
 DEVICE_NAME_TO_SAMPLING_RATE = {"mac": 7, "pp_ct": 1}
 SOLAR_SAMPLING_RATE = 2
 
@@ -259,7 +286,9 @@ class DataBuilder:
         return case_data.fillna(value=0)
 
     def _preprocess(self, case_data: pd.DataFrame) -> pd.DataFrame:
-        case_data.pp_ct.fillna(0, inplace=True)
+        for drug in INTERVENTION_DRUGS:
+            if drug != 'mac' and drug in case_data.columns:
+                case_data[drug].ffill(inplace=True)
         _preprocess_functions = [self._preprocess_sampling, self._preprocess_peak,
                                  self._preprocess_smooth, self._preprocess_fillna]
 
@@ -289,6 +318,21 @@ class DataBuilder:
         label_id[label == 0] = np.nan
 
         return label, label_id
+
+    def detect_intervention(self, segment: pd.DataFrame) -> bool:
+        for drug in INTERVENTION_DRUGS:
+            if drug not in segment.columns:
+                continue
+            if drug == 'mac':
+                # as MAC is a measure a variation of less than 5% is not considered as an intervention
+                seuil = 0.05
+            else:
+                seuil = 0
+            if (segment[drug].max() - segment[drug].min() > seuil * segment[drug].max()):
+                return True
+            elif (segment[drug].isna().iloc[0]) and (segment[drug].notna().any()):
+                return True
+        return False
 
     def _validate_segment(
         self, segment: pd.DataFrame, previous_segment: pd.DataFrame
@@ -409,6 +453,9 @@ class DataBuilder:
             )
 
             segment_features["time"] = segment_observations.index[-1]
+            segment_features["intervention"] = self.detect_intervention(
+                segment.iloc[self.observation_window_length:]
+            )
 
             if segment_features.label.iloc[0] == 1:
                 segment_features["time_before_IOH"] = (
