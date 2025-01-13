@@ -320,17 +320,17 @@ class DataBuilder:
         return label, label_id
 
     def detect_intervention(self, segment: pd.DataFrame) -> bool:
-        # remove part of the segment after label==1 to only consider intervention before possible IOH
-        segment = segment.loc[: segment.label.idxmax()]
+        # Remove part of the segment after label==1 to only consider intervention before possible IOH
+        if segment.label.sum() > 0:
+            time_label = segment.label.idxmax()
+            if time_label > segment.index[0]:
+                time_label -= pd.Timedelta(seconds=self.sampling_time)
+            segment = segment.loc[: time_label]
+        # Test if there is an intervention
         for drug in INTERVENTION_DRUGS:
             if drug not in segment.columns:
                 continue
-            if drug == 'mac':
-                # as MAC is a measure a variation of less than 5% is not considered as an intervention
-                seuil = 0.05
-            else:
-                seuil = 0
-            if (segment[drug].max() - segment[drug].min() > seuil * segment[drug].max()):
+            if (segment[drug].max() - segment[drug].min() > 0 * segment[drug].max()):
                 return True
             elif (segment[drug].isna().iloc[0]) and (segment[drug].notna().any()):
                 return True
