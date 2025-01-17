@@ -53,6 +53,17 @@ INTERVENTION_DRUGS = [
     "mac",
 ]
 
+VASSOPRESSOR_DRUGS = [
+    "vaso_rate",
+    "phen_rate",
+    "nepi_rate",
+    "epi_rate",
+    "dopa_rate",
+    "dobu_rate",
+    "nps_rate",
+]
+
+
 DEVICE_NAME_TO_SAMPLING_RATE = {"mac": 7, "pp_ct": 1}
 SOLAR_SAMPLING_RATE = 2
 
@@ -326,14 +337,25 @@ class DataBuilder:
             if time_label > segment.index[0]:
                 time_label -= pd.Timedelta(seconds=self.sampling_time)
             segment = segment.loc[: time_label]
+            hypo = True
+        else:
+            hypo = False
         # Test if there is an intervention
         for drug in INTERVENTION_DRUGS:
             if drug not in segment.columns:
                 continue
-            if (segment[drug].max() - segment[drug].min() > 0 * segment[drug].max()):
-                return True
-            elif (segment[drug].isna().iloc[0]) and (segment[drug].notna().any()):
-                return True
+            if hypo and drug in VASSOPRESSOR_DRUGS:
+                if segment[drug].iloc[0] - segment[drug].min() > 0:
+                    return True
+            elif hypo and drug not in VASSOPRESSOR_DRUGS:
+                if segment[drug].iloc[0] - segment[drug].max() < 0:
+                    return True
+            elif not hypo and drug in VASSOPRESSOR_DRUGS:
+                if segment[drug].iloc[0] - segment[drug].max() < 0:
+                    return True
+            elif not hypo and drug not in VASSOPRESSOR_DRUGS:
+                if segment[drug].iloc[0] - segment[drug].min() > 0:
+                    return True
         return False
 
     def _validate_segment(
@@ -498,7 +520,7 @@ class DataBuilder:
         #  - segment_count: number of segment of the case IDs
         #  - label_count: number of positive of the case IDs
         label_stats = (
-            pd.read_parquet(self.cases_folder)
+            pd.read_parquet(self.cases_folder, columns=["label", "caseid"])
             .groupby("caseid")
             .agg(
                 # case_id=("caseid", "first"),
