@@ -50,6 +50,7 @@ TRACKS_CONFIG = [
     ),
     TrackConfig(name="Primus", tracks=["MAC"]),
     TrackConfig(name="SNUADC", tracks=["ART"]),
+    TrackConfig(name="BIS", tracks=["BIS"]),
 ]
 
 DEVICE_NAME_TO_SAMPLING_RATE = {
