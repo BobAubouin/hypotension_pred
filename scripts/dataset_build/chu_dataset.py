@@ -2,7 +2,7 @@ from hp_pred.databuilder import DataBuilder
 
 
 def main():
-    signal_features_names = ['mbp', 'sbp', 'dbp', 'hr', 'rr', 'spo2', 'etco2', 'mac', 'pp_ct']
+    signal_features_names = ['mbp', 'sbp', 'dbp', 'hr', 'rr', 'spo2', 'etco2', 'mac', 'pp_ct', 'rf_ct', 'body_temp']
     static_features_names = ["age", "bmi", "asa"]
     half_times = [60, 3*60, 10*60]
 
@@ -21,7 +21,7 @@ def main():
         recovery_time=0,
     )
 
-    databuilder.build()
+    # databuilder.build()
     databuilder.build_meta()
 
 
