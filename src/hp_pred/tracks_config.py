@@ -30,10 +30,27 @@ TRACKS_CONFIG = [
             "RR_CO2",
             "PLETH_SPO2",
             "ETCO2",
+            "BT",
         ],
     ),
-    TrackConfig(name="Orchestra", tracks=["PPF20_CT"]),
+    TrackConfig(
+        name="Orchestra",
+        tracks=["PPF20_CT",
+                "RFTN20_CT",
+                "VASO_RATE",
+                "PHEN_RATE",
+                "NEPI_RATE",
+                "EPI_RATE",
+                "DOPA_RATE",
+                "DOBU_RATE",
+                "DTZ_RATE",
+                "NTG_RATE",
+                "NPS_RATE",
+                ],
+    ),
     TrackConfig(name="Primus", tracks=["MAC"]),
+    # TrackConfig(name="SNUADC", tracks=["ART"]),
+    TrackConfig(name="BIS", tracks=["BIS"]),
 ]
 
 DEVICE_NAME_TO_SAMPLING_RATE = {
@@ -41,10 +58,3 @@ DEVICE_NAME_TO_SAMPLING_RATE = {
     "Primus": 7,
     "BIS": 1,
 }
-
-WAV_TRACK = [
-    'SNUADC/*',
-    'Primus/AWP',
-    'Primus/CO2',
-    'BIS/EEG1_WAV',
-    'BIS/EEG2_WAV']

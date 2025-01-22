@@ -23,9 +23,48 @@ RAW_FEATURES_NAME_TO_NEW_NAME = {
     "Solar8000/RR_CO2": "rr",
     "Solar8000/PLETH_SPO2": "spo2",
     "Solar8000/ETCO2": "etco2",
+    "Solar8000/BT": "body_temp",
     "Orchestra/PPF20_CT": "pp_ct",
+    "Orchestra/RFTN20_CT": "rf_ct",
+    "Orchestra/VASO_RATE": "vaso_rate",
+    "Orchestra/PHEN_RATE": "phen_rate",
+    "Orchestra/NEPI_RATE": "nepi_rate",
+    "Orchestra/EPI_RATE": "epi_rate",
+    "Orchestra/DOPA_RATE": "dopa_rate",
+    "Orchestra/DOBU_RATE": "dobu_rate",
+    "Orchestra/DTZ_RATE": "dtz_rate",
+    "Orchestra/NTG_RATE": "ntg_rate",
+    "Orchestra/NPS_RATE": "nps_rate",
     "Primus/MAC": "mac",
+    'BIS/BIS': 'bis',
 }
+
+INTERVENTION_DRUGS = [
+    "pp_ct",
+    "rf_ct",
+    "vaso_rate",
+    "phen_rate",
+    "nepi_rate",
+    "epi_rate",
+    "dopa_rate",
+    "dobu_rate",
+    "dtz_rate",
+    "ntg_rate",
+    "nps_rate",
+    "mac",
+]
+
+VASSOPRESSOR_DRUGS = [
+    "vaso_rate",
+    "phen_rate",
+    "nepi_rate",
+    "epi_rate",
+    "dopa_rate",
+    "dobu_rate",
+    "nps_rate",
+]
+
+
 DEVICE_NAME_TO_SAMPLING_RATE = {"mac": 7, "pp_ct": 1}
 SOLAR_SAMPLING_RATE = 2
 
@@ -45,6 +84,8 @@ MIN_MBP_SEGMENT = (
 MAX_MBP_SEGMENT = (
     150  # maximum acceptable value for the mean arterial pressure (in mmHg)
 )
+MIN_BIS_SEGMENT = 10  # minimum acceptable value for the bispectral index
+
 MAX_NAN_SEGMENT = 0.2  # maximum acceptable value for the nan in the segment (in %)
 RECOVERY_TIME = 10 * 60  # recovery time after the IOH (in seconds)
 TOLERANCE_SEGMENT_SPLIT = 0.01  # tolerance for the segment split
@@ -65,6 +106,7 @@ class DataBuilder:
             "window_size_peak": self.window_size_peak * self.sampling_time,
             "max_mbp_segment": self.max_mbp_segment,
             "min_mbp_segment": self.min_mbp_segment,
+            "min_bis_segment": self.min_bis_segment,
             "threshold_peak": self.threshold_peak,
             # Segmentations parameters
             "prediction_window_length": self.prediction_window_length
@@ -112,6 +154,7 @@ class DataBuilder:
         recovery_time: int = RECOVERY_TIME,
         max_mbp_segment: int = MAX_MBP_SEGMENT,
         min_mbp_segment: int = MIN_MBP_SEGMENT,
+        min_bis_segment: int = MIN_BIS_SEGMENT,
         threshold_peak: int = THRESHOLD_PEAK,
         max_nan_segment: float = MAX_NAN_SEGMENT,
         tolerance_segment_split: float = TOLERANCE_SEGMENT_SPLIT,
@@ -145,6 +188,7 @@ class DataBuilder:
         self.window_size_peak = window_size_peak // sampling_time
         self.max_mbp_segment = max_mbp_segment
         self.min_mbp_segment = min_mbp_segment
+        self.min_bis_segment = min_bis_segment
         self.threshold_peak = threshold_peak
         self.smooth_period = smooth_period // sampling_time
         # End (Preprocess)
@@ -166,7 +210,7 @@ class DataBuilder:
         # Features generation
         self.extract_features = extract_features
         self.half_times = [half_time // sampling_time for half_time in half_times]
-        # End (Features generation)
+        # End (Features generation)= 'pp_ct'
 
         # Labelize
         self.min_time_ioh = min_time_ioh // sampling_time
@@ -212,6 +256,8 @@ class DataBuilder:
         case_data.mbp.mask(case_data.mbp < self.min_mbp_segment, inplace=True)
         case_data.mbp.mask(case_data.mbp > self.max_mbp_segment, inplace=True)
 
+        case_data.bis.mask(case_data.bis < self.min_bis_segment, inplace=True)
+
         # removing the nan values at the beginning and the ending
         case_valid_mask = ~case_data.mbp.isna()
         case_data = case_data[
@@ -247,7 +293,7 @@ class DataBuilder:
         return case_data
 
     def _preprocess_smooth(self, case_data: pd.DataFrame) -> pd.DataFrame:
-        signals_to_smooth = [sign for sign in self.signal_features_names if sign != 'pp_ct']
+        signals_to_smooth = [sign for sign in self.signal_features_names if sign not in INTERVENTION_DRUGS]
         case_data[signals_to_smooth] = case_data[signals_to_smooth].rolling(
             window=self.smooth_period, min_periods=1).mean()
         return case_data
@@ -256,10 +302,13 @@ class DataBuilder:
         case_data.mbp = case_data.mbp.interpolate()
         case_data.sbp = case_data.sbp.interpolate()
         case_data.dbp = case_data.dbp.interpolate()
+        case_data.bis = case_data.bis.interpolate()
         return case_data.fillna(value=0)
 
     def _preprocess(self, case_data: pd.DataFrame) -> pd.DataFrame:
-        case_data.pp_ct.fillna(0, inplace=True)
+        for drug in INTERVENTION_DRUGS:
+            if drug in case_data.columns:
+                case_data[drug].ffill(inplace=True)
         _preprocess_functions = [self._preprocess_sampling, self._preprocess_peak,
                                  self._preprocess_smooth, self._preprocess_fillna]
 
@@ -289,6 +338,34 @@ class DataBuilder:
         label_id[label == 0] = np.nan
 
         return label, label_id
+
+    def detect_intervention(self, segment: pd.DataFrame) -> bool:
+        # Remove part of the segment after label==1 to only consider intervention before possible IOH
+        if segment.label.sum() > 0:
+            time_label = segment.label.idxmax()
+            if time_label > segment.index[0]:
+                time_label -= pd.Timedelta(seconds=self.sampling_time)
+            segment = segment.loc[: time_label]
+            hypo = True
+        else:
+            hypo = False
+        # Test if there is an intervention
+        for drug in INTERVENTION_DRUGS:
+            if drug not in segment.columns:
+                continue
+            if hypo and drug in VASSOPRESSOR_DRUGS:
+                if segment[drug].iloc[0] - segment[drug].min() > 0:
+                    return True
+            elif hypo and drug not in VASSOPRESSOR_DRUGS:
+                if segment[drug].iloc[0] - segment[drug].max() < 0:
+                    return True
+            elif not hypo and drug in VASSOPRESSOR_DRUGS:
+                if segment[drug].iloc[0] - segment[drug].max() < 0:
+                    return True
+            elif not hypo and drug not in VASSOPRESSOR_DRUGS:
+                if segment[drug].iloc[0] - segment[drug].min() > 0:
+                    return True
+        return False
 
     def _validate_segment(
         self, segment: pd.DataFrame, previous_segment: pd.DataFrame
@@ -409,6 +486,9 @@ class DataBuilder:
             )
 
             segment_features["time"] = segment_observations.index[-1]
+            segment_features["intervention"] = self.detect_intervention(
+                segment.iloc[self.observation_window_length:]
+            )
 
             if segment_features.label.iloc[0] == 1:
                 segment_features["time_before_IOH"] = (
@@ -449,7 +529,7 @@ class DataBuilder:
         #  - segment_count: number of segment of the case IDs
         #  - label_count: number of positive of the case IDs
         label_stats = (
-            pd.read_parquet(self.cases_folder)
+            pd.read_parquet(self.cases_folder, columns=["label", "caseid"])
             .groupby("caseid")
             .agg(
                 # case_id=("caseid", "first"),
