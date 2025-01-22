@@ -4,7 +4,7 @@ from hp_pred.databuilder import DataBuilder
 def main():
     signal_features_names = ['mbp', 'sbp', 'dbp', 'hr', 'rr', 'spo2', 'etco2', 'mac', 'pp_ct']
     static_features_names = ["age", "bmi", "asa"]
-    half_times = [30, 3*60, 10*60]
+    half_times = [60, 3*60, 10*60]
 
     databuilder = DataBuilder(
         raw_data_folder_path="./data/cases",

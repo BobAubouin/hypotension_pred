@@ -9,13 +9,13 @@ from hp_pred.experiments import bootstrap_test, objective_xgboost
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
-SIGNAL_FEATURE = ['mbp', 'sbp', 'dbp', 'hr', 'rr', 'spo2', 'etco2', 'mac', 'pp_ct']
+SIGNAL_FEATURE = ['mbp', 'sbp', 'dbp', 'hr', 'rr', 'spo2', 'etco2', 'mac', 'pp_ct', 'rf_ct', 'body_temp']
 STATIC_FEATURE = ["age", "bmi", "asa"]
 HALF_TIME_FILTERING = [60, 3*60, 10*60]
 
 
-dataset_folder = Path("data/datasets/30_s_dataset")
-model_filename = "xgb_30_s_smoteenn.json"
+dataset_folder = Path("data/datasets/30_s_filtered_v2_dataset")
+model_filename = "xgb_30_s_filter_v2.json"
 
 # import the data frame and add the meta data to the segments
 data = pd.read_parquet(dataset_folder / 'cases/')
@@ -23,6 +23,7 @@ data = pd.read_parquet(dataset_folder / 'cases/')
 static = pd.read_parquet(dataset_folder / 'meta.parquet')
 
 data = data.merge(static, on='caseid')
+data = data[data['intervention']==0]
 
 train = data[data['split'] == "train"]
 test = data[data['split'] == "test"]
@@ -112,17 +113,17 @@ else:
     # save the model
     model.save_model(model_file)
 
-y_pred = model.predict_proba(test[FEATURE_NAME])
-y_test = test["label"].to_numpy()
-y_label_ids = test["label_id"].to_numpy()
+# y_pred = model.predict_proba(test[FEATURE_NAME])
+# y_test = test["label"].to_numpy()
+# y_label_ids = test["label_id"].to_numpy()
 
 
-dict_results, tprs_interpolated, precision_interpolated = bootstrap_test(
-    y_test, y_pred, y_label_ids, n_bootstraps=200, rng_seed=rng_seed, strategy="targeted_recall", target=0.24)
+# dict_results, tprs_interpolated, precision_interpolated = bootstrap_test(
+#     y_test, y_pred, y_label_ids, n_bootstraps=200, rng_seed=rng_seed, strategy="targeted_recall", target=0.24)
 
-result_folder = Path("data/results")
-if not result_folder.exists():
-    result_folder.exists()
-roc_results = result_folder / "xgboost_roc_30_s.pkl"
-with roc_results.open("wb") as f:
-    pickle.dump(dict_results, f)
+# result_folder = Path("data/results")
+# if not result_folder.exists():
+#     result_folder.exists()
+# roc_results = result_folder / "xgboost_roc_30_s.pkl"
+# with roc_results.open("wb") as f:
+#     pickle.dump(dict_results, f)
