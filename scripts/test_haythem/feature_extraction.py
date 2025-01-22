@@ -313,7 +313,7 @@ def process_case(args):
 
 
 def main():
-    dataset_name = 'signal_dataset_haytem'
+    dataset_name = 'signal_dataset_haythem'
     dataset_path = Path(f'data/datasets/{dataset_name}')
     output_folder = 'features'
 
