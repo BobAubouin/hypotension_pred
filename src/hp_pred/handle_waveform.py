@@ -77,6 +77,8 @@ def extract_feature_from_dir(dataset_dir: str,
             data_wave_batch,
             segments_length
         )
+        if segmented_wave is None:
+            continue
 
         if extraction_method == 'ts_fresh':
             if 'ts_fresh_method' not in extraction_parameters:
@@ -142,6 +144,8 @@ def create_segments_for_batch(segments_timming: pd.DataFrame,
             segments_length
         )
         segmented_wave.append(segmented_wave_case)
+    if len(segmented_wave) == 0:
+        return None
     segmented_wave = pd.concat(segmented_wave)
     return segmented_wave
 
@@ -188,6 +192,13 @@ def extract_feature_with_rocket(segmented_wave: pd.DataFrame,
         ids.append(idx)
         grouped_segments.append([segment['bp'].values])
 
+    # check if all the segments have the same length
+    if len(set([len(x[0]) for x in grouped_segments])) != 1:
+        # if not select only the most common length
+        most_common_length = max(set([len(x[0]) for x in grouped_segments]), key=[len(x[0])
+                                 for x in grouped_segments].count)
+        grouped_segments = [x for x in grouped_segments if len(x[0]) == most_common_length]
+
     # Convert to numpy array [n_samples, n_timestamps]
     segmented_array = np.array(grouped_segments)
 
@@ -199,7 +210,7 @@ def extract_feature_with_rocket(segmented_wave: pd.DataFrame,
             num_kernels=num_kernels,
             random_state=random_state,
             n_jobs=os.cpu_count()
-            )
+        )
         # Fit and transform
         mini_rocket.fit(segmented_array)
 
