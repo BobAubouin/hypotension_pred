@@ -22,8 +22,8 @@ def main():
         recovery_time=0,
     )
 
-    databuilder.build()
-    databuilder.build_meta()
+    # databuilder.build()
+    # databuilder.build_meta()
     extract_feature_from_dir("data/datasets/30_s_filtered_v2_dataset",
                              segments_length=10*60,
                              extraction_method='rocket',
