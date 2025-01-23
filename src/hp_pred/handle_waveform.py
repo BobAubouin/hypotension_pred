@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 
 import pandas as pd
 import numpy as np
@@ -194,7 +195,11 @@ def extract_feature_with_rocket(segmented_wave: pd.DataFrame,
         mini_rocket = rocket_model
     else:
         # Initialize Rocket with reproducible random state
-        mini_rocket = MiniRocket(num_kernels=num_kernels, random_state=random_state, n_jobs=-1)
+        mini_rocket = MiniRocket(
+            num_kernels=num_kernels,
+            random_state=random_state,
+            n_jobs=os.cpu_count()
+            )
         # Fit and transform
         mini_rocket.fit(segmented_array)
 
