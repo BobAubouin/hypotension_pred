@@ -54,9 +54,11 @@ def extract_feature_from_dir(dataset_dir: str,
         data_wave_batch = []
 
         for case_id in cases_id_batch:
-            data_wave_batch.append(
-                pd.read_parquet(Path(data_waveform_dir) / f"case-{case_id:04d}.parquet")
-            )
+            filename = Path(data_waveform_dir) / f"case-{case_id:04d}.parquet"
+            if filename.exists():
+                data_wave_batch.append(
+                    pd.read_parquet(filename)
+                )
 
         data_wave_batch = pd.concat(data_wave_batch)
         data_wave_batch.rename(columns={'SNUADC/ART': 'bp'}, inplace=True)
