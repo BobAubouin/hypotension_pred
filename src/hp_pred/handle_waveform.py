@@ -147,7 +147,7 @@ def create_segments_for_batch(segments_timming: pd.DataFrame,
     case_ids = segments_timming['caseid'].unique()
     with mp.Pool(processes=mp.cpu_count()) as pool:
         func = partial(
-            process_case,
+            select_and_process_case,
             segments_timming=segments_timming,
             data_wave=data_wave,
             segments_length=segments_length
