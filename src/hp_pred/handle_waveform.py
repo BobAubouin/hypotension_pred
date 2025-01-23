@@ -1,5 +1,7 @@
 from pathlib import Path
 import os
+from functools import partial
+import multiprocessing as mp
 
 import pandas as pd
 import numpy as np
@@ -7,6 +9,7 @@ from tsfresh.feature_extraction import extract_features, MinimalFCParameters, Ef
 from tsfresh import select_features
 from tsfresh.utilities.dataframe_functions import impute
 from sktime.transformations.panel.rocket import MiniRocket
+from tqdm import tqdm
 
 
 NEW_SAMPLE_TIME = "20ms"
@@ -18,6 +21,7 @@ def extract_feature_from_dir(dataset_dir: str,
                              output_dir_name: str,
                              extraction_parameters: dict = {},
                              cases_id_list: list = None,
+                             case_id_min: int = 0,
                              batch_size: int = 100):
 
     segments_length = pd.to_timedelta(segments_length, unit='s')
@@ -34,6 +38,8 @@ def extract_feature_from_dir(dataset_dir: str,
     if cases_id_list is None:
         cases_id_list = segments_data.caseid.unique()
 
+    cases_id_list = [case_id for case_id in cases_id_list if case_id > case_id_min]
+
     segments_data = segments_data[segments_data.caseid.isin(cases_id_list)]
     segments_data['time'] = pd.to_timedelta(segments_data['time'], unit='s')
 
@@ -46,8 +52,7 @@ def extract_feature_from_dir(dataset_dir: str,
 
     if extraction_method == 'rocket':
         rocket_model = None
-    for batch in range(batch_number):
-        print(f"Starting batch {batch}/{batch_number}")
+    for batch in tqdm(range(batch_number), desc="Feature extraction", total=batch_number):
 
         cases_id_batch = cases_id_list_batch[batch]
         segments_data_batch = segments_data[segments_data.caseid.isin(cases_id_batch)]
@@ -131,19 +136,23 @@ def create_segments_for_one_case(segments_timming: pd.DataFrame,
     segmented_wave = pd.concat(segmented_wave)
     return segmented_wave
 
+def select_and_process_case(caseid, segments_timming, data_wave, segments_length):
+    segments_timming_case = segments_timming[segments_timming['caseid'] == caseid]
+    data_wave_case = data_wave[data_wave['caseid'] == caseid]
+    return create_segments_for_one_case(segments_timming_case, data_wave_case, segments_length)
 
 def create_segments_for_batch(segments_timming: pd.DataFrame,
                               data_wave: pd.DataFrame,
                               segments_length: pd.Timedelta):
-    segmented_wave = []
-    for caseid, segments_timming_case in segments_timming.groupby('caseid'):
-        data_wave_case = data_wave[data_wave['caseid'] == caseid]
-        segmented_wave_case = create_segments_for_one_case(
-            segments_timming_case,
-            data_wave_case,
-            segments_length
+    case_ids = segments_timming['caseid'].unique()
+    with mp.Pool(processes=mp.cpu_count()) as pool:
+        func = partial(
+            process_case,
+            segments_timming=segments_timming,
+            data_wave=data_wave,
+            segments_length=segments_length
         )
-        segmented_wave.append(segmented_wave_case)
+        segmented_wave = pool.map(func, case_ids)
     if len(segmented_wave) == 0:
         return None
     segmented_wave = pd.concat(segmented_wave)
@@ -197,7 +206,14 @@ def extract_feature_with_rocket(segmented_wave: pd.DataFrame,
         # if not select only the most common length
         most_common_length = max(set([len(x[0]) for x in grouped_segments]), key=[len(x[0])
                                  for x in grouped_segments].count)
-        grouped_segments = [x for x in grouped_segments if len(x[0]) == most_common_length]
+        grouped_segments_new = []
+        ids_new = []
+        for i in range(len(grouped_segments)):
+            if len(grouped_segments[i][0]) != most_common_length:
+                grouped_segments_new.append(grouped_segments[i])
+                ids_new.append(ids[i])
+        grouped_segments = grouped_segments_new
+        ids = ids_new
 
     # Convert to numpy array [n_samples, n_timestamps]
     segmented_array = np.array(grouped_segments)
@@ -209,7 +225,7 @@ def extract_feature_with_rocket(segmented_wave: pd.DataFrame,
         mini_rocket = MiniRocket(
             num_kernels=num_kernels,
             random_state=random_state,
-            n_jobs=os.cpu_count()
+            n_jobs=32,
         )
         # Fit and transform
         mini_rocket.fit(segmented_array)
