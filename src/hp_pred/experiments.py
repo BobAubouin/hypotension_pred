@@ -386,7 +386,10 @@ def load_labelized_cases(
         pd.DataFrame: Labeled case data.
     """
     databuilder = DataBuilder.from_json(dataset_path)
-    databuilder.raw_data_folder = databuilder.raw_data_folder / f"case-{caseid:04d}.parquet"
+    if 'chu' in str(databuilder.raw_data_folder):
+        databuilder.raw_data_folder = databuilder.raw_data_folder / f"chu_case_{caseid:03d}.parquet"
+    else:
+        databuilder.raw_data_folder = databuilder.raw_data_folder / f"case-{caseid:04d}.parquet"
     case_data, _ = databuilder._import_raw()
     case_data = case_data.reset_index("caseid", drop=True)
     preprocess_case = databuilder._preprocess(case_data)
@@ -430,9 +433,12 @@ def print_statistics(dict: Dict[str, pd.DataFrame]) -> None:
     df = pd.DataFrame()
     for key in ["aucs", "aps", "auprcs", "threshold_opt", "recall_threshold", "precision_threshold", "specificity", "npvs", "f1"]:
         df[key] = dict[key]
+    print('----- General stats -----')
     print(f"AUC: {print_one_stat(df.aucs, False)}")
     print(f"AP: {print_one_stat(df.aps, False)}")
     print(f"AUPRC: {print_one_stat(df.auprcs, False)}")
+
+    print('----- At threshold stats -----')
     print(f"Threshold: {print_one_stat(df.threshold_opt, False)}")
     print(f"Recall: {print_one_stat(df.recall_threshold, True)}")
     print(f"Precision: {print_one_stat(df.precision_threshold, True)}")
