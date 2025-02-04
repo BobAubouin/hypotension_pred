@@ -9,31 +9,35 @@ from hp_pred.experiments import bootstrap_test, objective_xgboost
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
-SIGNAL_FEATURE = ['mbp', 'sbp', 'dbp', 'hr', 'rr', 'spo2', 'etco2', 'mac', 'pp_ct', 'rf_ct', 'body_temp']
+SIGNAL_FEATURE = ['mbp', 'sbp', 'dbp', 'hr', 'rr', 'spo2', 'etco2', 'mac', 'pp_ct', 'rf_ct', 'body_temp'] # 'mbp', 'sbp', 'dbp', 
 STATIC_FEATURE = ["age", "bmi", "asa"]
 HALF_TIME_FILTERING = [60, 3*60, 10*60]
 
 
-dataset_folder = Path("data/datasets/30_s_filtered_v2_dataset")
-model_filename = "xgb_rocket.json"
-feature_type="wave"
+dataset_folder = Path("data/datasets/30_s_remi_dataset")
+model_filename = "xgb_base.json"
+feature_type = "time"
 
 # import the data frame and add the meta data to the segments
-
+dataset_folder_bis = Path("data/datasets/30_s_filtered_v2_dataset")
+other_static = pd.read_parquet(dataset_folder_bis / 'meta.parquet')
 
 data = pd.read_parquet(dataset_folder / 'cases/')
 
-if feature_type == "wave":
+if feature_type == "wave" or feature_type == "mixt":
     data_wave = pd.read_parquet(dataset_folder / "wave_rocket_features/")
     data = data.merge(data_wave, left_on=['caseid', 'time'], right_on=['caseid', 'Time'])
+    data['label'] = data['label_x']
 
 static = pd.read_parquet(dataset_folder / 'meta.parquet')
 
-data = data.merge(static, on='caseid')
-data = data[data['intervention']==0]
+test_caseid = other_static[other_static['split'] == 'test']['caseid'].values
 
-train = data[data['split'] == "train"]
-test = data[data['split'] == "test"]
+data = data.merge(static, on='caseid')
+# data = data[data['intervention']==0]
+
+train = data[~(data['caseid'].isin(test_caseid))]
+test = data[data['caseid'].isin(test_caseid)]
 
 
 # control reproducibility
@@ -45,6 +49,28 @@ if feature_type == "wave":
 
 elif feature_type == "time":
     FEATURE_NAME = (
+        [
+            f"{signal}_constant_{half_time}"
+            for signal in SIGNAL_FEATURE
+            for half_time in HALF_TIME_FILTERING
+        ]
+        + [
+            f"{signal}_slope_{half_time}"
+            for signal in SIGNAL_FEATURE
+            for half_time in HALF_TIME_FILTERING
+        ]
+        + [
+            f"{signal}_std_{half_time}"
+            for signal in SIGNAL_FEATURE
+            for half_time in HALF_TIME_FILTERING
+        ]
+        + STATIC_FEATURE
+    )
+
+    FEATURE_NAME = [x for x in FEATURE_NAME if f"std_{HALF_TIME_FILTERING[0]}" not in x]
+elif feature_type == "mixt":
+    FEATURE_NAME = [col for col in data.columns if "feature" in col]
+    FEATURE_NAME += (
         [
             f"{signal}_constant_{half_time}"
             for signal in SIGNAL_FEATURE
