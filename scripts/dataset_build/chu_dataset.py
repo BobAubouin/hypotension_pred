@@ -21,7 +21,7 @@ def main():
         recovery_time=0,
     )
 
-    # databuilder.build()
+    databuilder.build()
     databuilder.build_meta()
 
 
