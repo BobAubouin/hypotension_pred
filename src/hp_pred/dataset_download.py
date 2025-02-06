@@ -14,6 +14,7 @@ from hp_pred.tracks_config import (
     STATIC_DATA_NAMES,
     STATIC_NAME_TO_DTYPES,
     TRACKS_CONFIG,
+    SAMPLING_TIME,
     TrackConfig,
 )
 
@@ -145,34 +146,39 @@ def filter_case_ids(cases: pd.DataFrame, tracks_meta: pd.DataFrame) -> list[int]
     logger.debug("Filter case IDs: Start")
     logger.info(f"Filter case IDs: Number of cases to consider {len(cases.caseid)}")
     # The cases should have the Mean Blood Pressure track.
-    cases_with_mbp = pd.merge(
-        tracks_meta.query(f"tname == '{TRACK_NAME_MBP}'"),
-        cases,
-        on="caseid",
+    # cases_with_mbp = pd.merge(
+    #     tracks_meta.query(f"tname == '{TRACK_NAME_MBP}'"),
+    #     cases,
+    #     on="caseid",
+    # )
+
+    # # The cases should met these requirements
+    # filtered_unique_case_ids = cases_with_mbp[
+    #     (cases_with_mbp.age > AGE_CASE_THRESHOLD)
+    #     & (cases_with_mbp.caseend > CASEEND_CASE_THRESHOLD)
+    #     & (~cases_with_mbp.opname.str.contains(FORBIDDEN_OPNAME_CASE, case=False))
+    #     & (~cases_with_mbp.optype.str.contains(FORBIDDEN_OPNAME_CASE, case=False))
+    #     & (cases_with_mbp.intraop_eph <= BOLUS_THRESHOLD)
+    #     & (cases_with_mbp.intraop_phe <= BOLUS_THRESHOLD)
+    #     & (cases_with_mbp.intraop_epi <= BOLUS_THRESHOLD)
+    #     & (cases_with_mbp.intraop_mdz <= BOLUS_THRESHOLD)
+    #     & (cases_with_mbp.emop == 0)
+    #     & (
+    #         (cases_with_mbp.intraop_ebl < BLOOD_LOSS_THRESHOLD)
+    #         | (cases_with_mbp.intraop_ebl.isna())
+    #     )
+    # ].caseid.unique()
+    filtered_case_ids = list(
+        set(tracks_meta.loc[tracks_meta['tname'].str.lower().str.contains("solar8000"), 'caseid']) &
+        set(cases.loc[cases['age'] > 18, 'caseid']) &
+        set(cases.loc[~cases['ane_type'].str.lower().str.contains("sedationalgesia"), 'caseid'])
     )
 
-    # The cases should met these requirements
-    filtered_unique_case_ids = cases_with_mbp[
-        (cases_with_mbp.age > AGE_CASE_THRESHOLD)
-        & (cases_with_mbp.caseend > CASEEND_CASE_THRESHOLD)
-        & (~cases_with_mbp.opname.str.contains(FORBIDDEN_OPNAME_CASE, case=False))
-        & (~cases_with_mbp.optype.str.contains(FORBIDDEN_OPNAME_CASE, case=False))
-        & (cases_with_mbp.intraop_eph <= BOLUS_THRESHOLD)
-        & (cases_with_mbp.intraop_phe <= BOLUS_THRESHOLD)
-        & (cases_with_mbp.intraop_epi <= BOLUS_THRESHOLD)
-        & (cases_with_mbp.intraop_mdz <= BOLUS_THRESHOLD)
-        & (cases_with_mbp.emop == 0)
-        & (
-            (cases_with_mbp.intraop_ebl < BLOOD_LOSS_THRESHOLD)
-            | (cases_with_mbp.intraop_ebl.isna())
-        )
-    ].caseid.unique()
-
     # The cases should have the needed static data
-    potential_cases = cases[cases.caseid.isin(filtered_unique_case_ids)]
-    filtered_case_ids = potential_cases[
-        potential_cases[STATIC_DATA_NAMES + ["caseid"]].isna().sum("columns") == 0
-    ].caseid.tolist()
+    # potential_cases = cases[cases.caseid.isin(filtered_unique_case_ids)]
+    # filtered_case_ids = potential_cases[
+    #     potential_cases[STATIC_DATA_NAMES + ["caseid"]].isna().sum("columns") == 0
+    # ].caseid.tolist()
 
     n_kept_cases = len(filtered_case_ids)
     logger.info(f"Filter case IDs: Number of cases kept {n_kept_cases}")
@@ -198,7 +204,7 @@ def retrieve_tracks_raw_data(tracks_meta: pd.DataFrame) -> Tuple[pd.DataFrame, p
 
     track_name = tracks_meta.tname.unique()
     wave_name = [track for track in track_name if any(
-        fnmatch.fnmatch(track, pattern) for pattern in WAV_TRACK)]
+        fnmatch.fnmatchcase(track, pattern) for pattern in WAV_TRACK)]
     num_name = [track for track in track_name if track not in wave_name]
 
     num_meta = tracks_meta[tracks_meta.tname.isin(num_name)]
@@ -226,7 +232,7 @@ def retrieve_tracks_raw_data(tracks_meta: pd.DataFrame) -> Tuple[pd.DataFrame, p
 
     logger.debug("Retrieve data from VitalDB API: End for num tracks")
 
-    if wave_name is not None:
+    if len(wave_name) > 0:
         wave_meta = tracks_meta[tracks_meta.tname.isin(wave_name)]
         wave_url_and_case_id = [
             (f"/{track.tid}", int(track.caseid))  # type: ignore
@@ -287,6 +293,17 @@ def format_track_raw_data_num(tracks_raw_data: pd.DataFrame) -> pd.DataFrame:
     tracks = tracks_raw_data_grouped.agg(aggregate_dict)
     logger.debug("Data formatting: One value of Time per case ID")
 
+    # Resample the data
+    tracks = tracks.sort_values("Time")
+    tracks['Time'] = pd.to_datetime(tracks['Time'], unit='s')
+    tracks = tracks.set_index("Time")
+    tracks = tracks.groupby("caseid").resample(f"{SAMPLING_TIME}s",
+                                               closed='right', label='right').last().drop(columns=["caseid"])
+    tracks['caseid'] = tracks.index.get_level_values("caseid")
+    tracks['Time'] = tracks.index.get_level_values("Time")
+    tracks = tracks.reset_index(drop=True)
+    tracks['Time'] = tracks.groupby("caseid")["Time"].transform(lambda x: (x - x.min()).dt.total_seconds())
+    logger.debug(f"Data resampling, new sampling time is {SAMPLING_TIME}s")
     return tracks
 
 
