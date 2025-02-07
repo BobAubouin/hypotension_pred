@@ -23,7 +23,9 @@ RAW_FEATURES_NAME_TO_NEW_NAME = {
     "Solar8000/RR_CO2": "rr",
     "Solar8000/PLETH_SPO2": "spo2",
     "Solar8000/ETCO2": "etco2",
+    "Solar8000/BT": "body_temp",
     "Orchestra/PPF20_CT": "pp_ct",
+    "Orchestra/RFTN20_CT": "rf_ct",
     "Primus/MAC": "mac",
 }
 DEVICE_NAME_TO_SAMPLING_RATE = {"mac": 7, "pp_ct": 1}

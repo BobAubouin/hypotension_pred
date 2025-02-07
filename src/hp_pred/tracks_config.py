@@ -30,9 +30,10 @@ TRACKS_CONFIG = [
             "RR_CO2",
             "PLETH_SPO2",
             "ETCO2",
+            "BT",
         ],
     ),
-    TrackConfig(name="Orchestra", tracks=["PPF20_CT"]),
+    TrackConfig(name="Orchestra", tracks=["PPF20_CT", "RFTN20_CT"]),
     TrackConfig(name="Primus", tracks=["MAC"]),
 ]
 
