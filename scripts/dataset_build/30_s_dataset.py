@@ -1,6 +1,4 @@
 from hp_pred.databuilder import DataBuilder
-from hp_pred.handle_waveform import extract_feature_from_dir
-
 
 def main():
     signal_features_names = ['mbp', 'sbp', 'dbp', 'hr', 'rr', 'spo2', 'etco2', 'mac', 'pp_ct', 'rf_ct', 'body_temp']
@@ -28,7 +26,9 @@ def main():
                              segments_length=10*60,
                              extraction_method='rocket',
                              output_dir_name="wave_rocket_features",
-                             batch_size=50)
+                             batch_size=32,
+                             case_id_min=3194,
+                             )
 
 
 if __name__ == "__main__":
