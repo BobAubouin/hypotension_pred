@@ -146,39 +146,34 @@ def filter_case_ids(cases: pd.DataFrame, tracks_meta: pd.DataFrame) -> list[int]
     logger.debug("Filter case IDs: Start")
     logger.info(f"Filter case IDs: Number of cases to consider {len(cases.caseid)}")
     # The cases should have the Mean Blood Pressure track.
-    # cases_with_mbp = pd.merge(
-    #     tracks_meta.query(f"tname == '{TRACK_NAME_MBP}'"),
-    #     cases,
-    #     on="caseid",
-    # )
-
-    # # The cases should met these requirements
-    # filtered_unique_case_ids = cases_with_mbp[
-    #     (cases_with_mbp.age > AGE_CASE_THRESHOLD)
-    #     & (cases_with_mbp.caseend > CASEEND_CASE_THRESHOLD)
-    #     & (~cases_with_mbp.opname.str.contains(FORBIDDEN_OPNAME_CASE, case=False))
-    #     & (~cases_with_mbp.optype.str.contains(FORBIDDEN_OPNAME_CASE, case=False))
-    #     & (cases_with_mbp.intraop_eph <= BOLUS_THRESHOLD)
-    #     & (cases_with_mbp.intraop_phe <= BOLUS_THRESHOLD)
-    #     & (cases_with_mbp.intraop_epi <= BOLUS_THRESHOLD)
-    #     & (cases_with_mbp.intraop_mdz <= BOLUS_THRESHOLD)
-    #     & (cases_with_mbp.emop == 0)
-    #     & (
-    #         (cases_with_mbp.intraop_ebl < BLOOD_LOSS_THRESHOLD)
-    #         | (cases_with_mbp.intraop_ebl.isna())
-    #     )
-    # ].caseid.unique()
-    filtered_case_ids = list(
-        set(tracks_meta.loc[tracks_meta['tname'].str.lower().str.contains("solar8000"), 'caseid']) &
-        set(cases.loc[cases['age'] > 18, 'caseid']) &
-        set(cases.loc[~cases['ane_type'].str.lower().str.contains("sedationalgesia"), 'caseid'])
+    cases_with_mbp = pd.merge(
+        tracks_meta.query(f"tname == '{TRACK_NAME_MBP}'"),
+        cases,
+        on="caseid",
     )
 
+    # The cases should met these requirements
+    filtered_unique_case_ids = cases_with_mbp[
+        (cases_with_mbp.age > AGE_CASE_THRESHOLD)
+        & (cases_with_mbp.caseend > CASEEND_CASE_THRESHOLD)
+        & (~cases_with_mbp.opname.str.contains(FORBIDDEN_OPNAME_CASE, case=False))
+        & (~cases_with_mbp.optype.str.contains(FORBIDDEN_OPNAME_CASE, case=False))
+        & (cases_with_mbp.intraop_eph <= BOLUS_THRESHOLD)
+        & (cases_with_mbp.intraop_phe <= BOLUS_THRESHOLD)
+        & (cases_with_mbp.intraop_epi <= BOLUS_THRESHOLD)
+        & (cases_with_mbp.intraop_mdz <= BOLUS_THRESHOLD)
+        & (cases_with_mbp.emop == 0)
+        & (
+            (cases_with_mbp.intraop_ebl < BLOOD_LOSS_THRESHOLD)
+            | (cases_with_mbp.intraop_ebl.isna())
+        )
+    ].caseid.unique()
+
     # The cases should have the needed static data
-    # potential_cases = cases[cases.caseid.isin(filtered_unique_case_ids)]
-    # filtered_case_ids = potential_cases[
-    #     potential_cases[STATIC_DATA_NAMES + ["caseid"]].isna().sum("columns") == 0
-    # ].caseid.tolist()
+    potential_cases = cases[cases.caseid.isin(filtered_unique_case_ids)]
+    filtered_case_ids = potential_cases[
+        potential_cases[STATIC_DATA_NAMES + ["caseid"]].isna().sum("columns") == 0
+    ].caseid.tolist()
 
     n_kept_cases = len(filtered_case_ids)
     logger.info(f"Filter case IDs: Number of cases kept {n_kept_cases}")
