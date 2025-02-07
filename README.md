@@ -53,12 +53,13 @@ The class `hp_pred.databuilder.DataBuilder` is used to create the segmented data
 
 The results associated with our paper can be replicated using the version of the git tagged 'jbhi_XP'.
 
-- First download data from VitalDB using the command `python -m hp_pred.dataset_download`.
-- Then create the segmented dataset running the script `scripts/dataset_build/30_s_dataset.py`.
-- Train the XGB model using the script `scripts/experiments/train_model.py`, approximately 1h.
+- First download data from VitalDB using the command `python -m hp_pred.dataset_download`. It will download the raw data in the `data/cases` foler.
+- Then create the segmented dataset running the script `scripts/dataset_build/30_s_dataset.py`. It will create a new folder in `data/datasets` with the segmented data.
+- Train the XGB model using the script `scripts/experiments/train_model.py`, approximately 1h. It will save the model in the `data/models` folder.
 - Finally, you can show the results using the notebook `scripts/experiments/show_results.ipynb`.
 - Study of the leading time influence can be done using the notebook `scripts/experiments/studyleading_time.ipynb`.
 
+Results might slightly differ due to the randomness of the model.
 Note that the results associated with data from Grenoble Hospital can not be replicated as the data is not public.
 
 ## Citation
