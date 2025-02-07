@@ -296,17 +296,21 @@ class DataBuilder:
         return case_data
 
     def _preprocess_fillna(self, case_data: pd.DataFrame) -> pd.DataFrame:
+        for drug in INTERVENTION_DRUGS:
+            if drug in case_data.columns:
+                if drug != 'mac':
+                    case_data[drug].ffill(inplace=True)
+                case_data[drug].fillna(0, inplace=True)
         if 'mbp' not in case_data.columns:
             return case_data
         case_data.mbp = case_data.mbp.interpolate()
         case_data.sbp = case_data.sbp.interpolate()
         case_data.dbp = case_data.dbp.interpolate()
+
         return case_data
 
     def _preprocess(self, case_data: pd.DataFrame) -> pd.DataFrame:
-        for drug in INTERVENTION_DRUGS:
-            if drug != 'mac' and drug in case_data.columns:
-                case_data[drug].ffill(inplace=True)
+
         _preprocess_functions = [self._preprocess_sampling, self._preprocess_peak,
                                  self._preprocess_smooth, self._preprocess_fillna]
 
