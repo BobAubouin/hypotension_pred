@@ -47,15 +47,19 @@ options:
 
 ### Create the segmented dataset
 
-The class `hp_pred.databuilder.DataBuilder` is used to create the segmented dataset with a sliding window approach. An example of use is given in the `scripts/dataset_build/base_dataset.py` scripts.
+The class `hp_pred.databuilder.DataBuilder` is used to create the segmented dataset with a sliding window approach. An example of use is given in the `scripts/dataset_build/base_dataset.py` scripts. If you do not want to use features extracted using linear regression you can check the `scripts/dataset_build/signal_dataset.py` script.
 
-### Recreate CDC results
+### Recreate JBHI results
 
-The results associated with our paper can be replicated using the version of the git tagged 'cdc_XP'. You should create the database running the previously mentioned step. Then you should run the notebooks in the `scripts/experiments` folder. This exact order of running must be respected:
+The results associated with our paper can be replicated using the version of the git tagged 'jbhi_XP'.
 
-- `baseline.ipynb`
-- `xgboos-model.ipynb`
-- `study_leading_time.ipynb`
+- First download data from VitalDB using the command `python -m hp_pred.dataset_download`.
+- Then create the segmented dataset running the script `scripts/dataset_build/30_s_dataset.py`.
+- Train the XGB model using the script `scripts/experiments/train_model.py`, approximately 1h.
+- Finally, you can show the results using the notebook `scripts/experiments/show_results.ipynb`.
+- Study of the leading time influence can be done using the notebook `scripts/experiments/studyleading_time.ipynb`.
+
+Note that the results associated with data from Grenoble Hospital can not be replicated as the data is not public.
 
 ## Citation
 
