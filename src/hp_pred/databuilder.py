@@ -250,6 +250,8 @@ class DataBuilder:
 
     def _preprocess_peak(self, case_data: pd.DataFrame) -> pd.DataFrame:
         # remove too low value (before the start of the measurement)
+        if 'mbp' not in case_data.columns:
+            return case_data
         case_data.mbp.mask(case_data.mbp < self.min_mbp_segment, inplace=True)
         case_data.mbp.mask(case_data.mbp > self.max_mbp_segment, inplace=True)
 
@@ -294,10 +296,12 @@ class DataBuilder:
         return case_data
 
     def _preprocess_fillna(self, case_data: pd.DataFrame) -> pd.DataFrame:
+        if 'mbp' not in case_data.columns:
+            return case_data
         case_data.mbp = case_data.mbp.interpolate()
         case_data.sbp = case_data.sbp.interpolate()
         case_data.dbp = case_data.dbp.interpolate()
-        return case_data.fillna(value=0)
+        return case_data
 
     def _preprocess(self, case_data: pd.DataFrame) -> pd.DataFrame:
         for drug in INTERVENTION_DRUGS:
