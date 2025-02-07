@@ -114,6 +114,7 @@ class DataBuilder:
             "recovery_time": self.recovery_time * self.sampling_time,
             "max_nan_segment": self.max_nan_segment,
             # Label parameters
+            "mbp_column": self.mbp_column,
             "min_time_ioh": self.min_time_ioh * self.sampling_time,
             "min_value_ioh": self.min_value_ioh,
             # Features parameters
@@ -145,6 +146,7 @@ class DataBuilder:
         segment_shift: int,
         half_times: list[int],
         window_size_peak: int = WINDOW_SIZE_PEAK,
+        mbp_column: str = "mbp",
         min_time_ioh: int = MIN_TIME_IOH,
         min_value_ioh: float = MIN_VALUE_IOH,
         recovery_time: int = RECOVERY_TIME,
@@ -207,6 +209,7 @@ class DataBuilder:
         # End (Features generation)
 
         # Labelize
+        self.mbp_column = mbp_column
         self.min_time_ioh = min_time_ioh // sampling_time
         self.min_value_ioh = min_value_ioh
         # End (Labelize)
@@ -312,7 +315,7 @@ class DataBuilder:
     def _labelize(self, case_data: pd.DataFrame) -> tuple[pd.Series, pd.Series]:
         # create the label for the case
         label_raw = (
-            case_data.mbp.rolling(self.min_time_ioh, min_periods=1)
+            case_data[self.mbp_column].rolling(self.min_time_ioh, min_periods=1)
             .apply(self.detect_ioh)
             .fillna(0)
         )
@@ -362,7 +365,7 @@ class DataBuilder:
         self, segment: pd.DataFrame, previous_segment: pd.DataFrame
     ) -> bool:
         # Too low/high MBP
-        mbp = segment.mbp
+        mbp = segment[self.mbp_column]
         if (mbp < self.min_mbp_segment).any() or (mbp > self.max_mbp_segment).any():
             return False
 
@@ -440,7 +443,7 @@ class DataBuilder:
                 #     column_to_features[ema_column] = (ewm.mean().iloc[-1],)
                 #     column_to_features[std_column] = (ewm.std().iloc[-1],)
         # add last value as baseline feature
-        column_to_features["last_map_value"] = (segment_observation.mbp.iloc[-1],)
+        column_to_features["last_map_value"] = (segment_observation[self.mbp_column].iloc[-1],)
         return pd.DataFrame(column_to_features, dtype="Float32")
 
     def _create_segments(self, case_data: pd.DataFrame, case_id: int) -> None:
