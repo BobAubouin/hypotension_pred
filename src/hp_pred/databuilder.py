@@ -418,11 +418,7 @@ class DataBuilder:
                     if signal_name not in ["mac", "pp_ct"]:
                         X = X[~y.isnull()]
                         y = y[~y.isnull()]
-
-                    model.fit(
-                        np.arange(-half_time, 0).reshape(-1, 1),
-                        segment_observation[signal_name].iloc[-half_time:],
-                    )
+                    model.fit(X, y)
                     column_to_features[constant_features] = (model.intercept_,)
                     column_to_features[slope_features] = (model.coef_[0],)
                     y_pred = model.predict(np.arange(-half_time, 0).reshape(-1, 1))
