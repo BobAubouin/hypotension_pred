@@ -83,7 +83,7 @@ MIN_MBP_SEGMENT = (
 MAX_MBP_SEGMENT = (
     150  # maximum acceptable value for the mean arterial pressure (in mmHg)
 )
-MAX_NAN_SEGMENT = 0.2  # maximum acceptable value for the nan in the segment (in %)
+MAX_NAN_SEGMENT = 0.50  # maximum acceptable value for the nan in the segment (in %)
 RECOVERY_TIME = 10 * 60  # recovery time after the IOH (in seconds)
 TOLERANCE_SEGMENT_SPLIT = 0.01  # tolerance for the segment split
 TOLERANCE_LABEL_SPLIT = 0.005  # tolerance for the label split
@@ -414,10 +414,19 @@ class DataBuilder:
                     model = LinearRegression()
                     X = np.arange(-half_time, 0).reshape(-1, 1)
                     y = segment_observation[signal_name].iloc[-half_time:]
-                    # remove 0 from y
-                    if signal_name not in ["mac", "pp_ct"]:
-                        X = X[~y.isnull()]
-                        y = y[~y.isnull()]
+                    # remove nan from y
+                    X = X[~y.isna()]
+                    y = y[~y.isna()]
+                    if len(y) == 0:
+                        column_to_features[constant_features] = (np.nan,)
+                        column_to_features[slope_features] = (np.nan,)
+                        column_to_features[std_features] = (np.nan,)
+                        continue
+                    if len(y) == 1:
+                        column_to_features[constant_features] = (y.iloc[0],)
+                        column_to_features[slope_features] = (0,)
+                        column_to_features[std_features] = (0,)
+                        continue
                     model.fit(X, y)
                     column_to_features[constant_features] = (model.intercept_,)
                     column_to_features[slope_features] = (model.coef_[0],)
