@@ -15,7 +15,10 @@ def segment_cardiac_cycle(data_wav: pd.DataFrame):
 
     # Find the troughs (inverted peaks) of the AP waveform
     scale_ampd = int(0.5 / sampling_time)
-    thought = find_peaks(-data_wav['ap'].fillna(0), scale=scale_ampd)
+    if len(data_wav['ap'].fillna(0)) == 0:
+        thought = []
+    else:
+        thought = find_peaks(-data_wav['ap'].fillna(0), scale=scale_ampd)
 
     # Create an array for cycle_id assignments
     cycle_id = np.full(data_wav.shape[0], np.nan)  # Initialize with NaN
@@ -103,6 +106,9 @@ def extract_AP_waveform_features(
     # Load the waveform data
     print('Reading waveform data')
     file_list = list(Path(waveform_dir).glob('*.parquet'))
+
+    # do not process if file already in the output directory
+    file_list = [file for file in file_list if not (Path(output_dir) / f'case_{int(file.stem.split("-")[1]):04d}.parquet').exists()]
 
     if not Path(output_dir).exists():
         Path(output_dir).mkdir(parents=True)
