@@ -95,7 +95,7 @@ def validate_segment(feature_cycle: pd.DataFrame, dict_param: dict = None):
 
 
 def extract_AP_waveform_features(
-        output_dir: str,
+        output_dir: str = 'data/wav/cycle_features',
         waveform_dir: str = 'data/wav/cases/',
         group_size: int = 5,
         dict_param_verif: dict = None):
@@ -114,7 +114,11 @@ def extract_AP_waveform_features(
     iter_number = len(file_list) // group_size + (1 if len(file_list) % group_size > 0 else 0)
 
     for i in tqdm(range(iter_number)):
-        file_group = file_list[i * group_size: (i + 1) * group_size]
+        if i == iter_number - 1:
+            file_group = file_list[i * group_size:]
+        else:
+            file_group = file_list[i * group_size: (i + 1) * group_size]
+
         data_wav = pd.concat([pd.read_parquet(file, engine='pyarrow') for file in file_group])
 
         data_wav.rename(columns={'SNUADC/ART': 'ap'}, inplace=True)
@@ -125,19 +129,8 @@ def extract_AP_waveform_features(
             .transform(lambda x: x.interpolate(method='linear'))
             .round(4)
         )
-
-        # Get min/max times for each caseid
-        min_times = data_wav.groupby('caseid')['Time'].min()
-        max_times = data_wav.groupby('caseid')['Time'].max()
-
-        new_data = []
-        for case in min_times.index:
-            new_times = np.arange(min_times[case], max_times[case] + SAMPLING_TIME, SAMPLING_TIME)
-            new_data.append(pd.DataFrame({'caseid': case, 'Time': new_times}))
-
-        # Combine all caseid groups back together
-        new_data = pd.concat(new_data, ignore_index=True)
-        data_wav = new_data.merge(data_wav, on=['caseid', 'Time'], how='left').ffill()
+        init_sampling = data_wav['Time'].iloc[1] - data_wav['Time'].iloc[0]
+        data_wav = data_wav.iloc[::int(SAMPLING_TIME / init_sampling)]
 
         data_wav = segment_cardiac_cycle(data_wav)
         feature_cycle = extract_basic_feature_from_cycle(data_wav)
@@ -145,7 +138,7 @@ def extract_AP_waveform_features(
 
         # Save the extracted features
         for _, feature in feature_cycle.groupby('caseid'):
-            feature.to_parquet(Path(output_dir) / f'case{feature["caseid"].iloc[0]:04d}.parquet',
+            feature.to_parquet(Path(output_dir) / f'case_{feature["caseid"].iloc[0]:04d}.parquet',
                                engine='pyarrow')
     print('Features extraction completed')
     return
@@ -153,20 +146,22 @@ def extract_AP_waveform_features(
 
 def interpolate_patient_features(patient_signal, patient_feature):
     # Reindex features to match signal timestamps
-    patient_feature = patient_feature.set_index("Time")
-    patient_signal = patient_signal.set_index("Time")
+    new_time = patient_signal["Time"]
+    dict_feature = {'Time': new_time}
+    for feature in patient_feature.columns:
+        if feature != "Time":
+            dict_feature[feature] = np.interp(new_time, patient_feature["Time"],
+                                              patient_feature[feature].astype(float), left=np.nan, right=np.nan)
 
-    # Reindex and interpolate
-    patient_feature = patient_feature.reindex(patient_signal.index).astype(float).interpolate(method='index')
-
-    # Reset index and return merged DataFrame
-    return patient_signal.reset_index().merge(patient_feature.reset_index(), on=["caseid", "Time"], how="left")
+    # Create DataFrame from dict_feature
+    patient_feature = pd.DataFrame(dict_feature)
+    return patient_signal.merge(patient_feature, on=["caseid", "Time"], how="left")
 
 
 def merge_signal_feature_cycle(
         data_signal_dir: str = 'data/cases/',
-        data_feature_dir: str = 'data/wav/features/',
-        output_dir: str = 'data/feature/'):
+        data_feature_dir: str = 'data/wav/cycle_features/',
+        output_dir: str = 'data/features/'):
 
     if not Path(output_dir).exists():
         Path(output_dir).mkdir(parents=True)
@@ -195,5 +190,5 @@ def merge_signal_feature_cycle(
 
 if __name__ == '__main__':
     # print curent working directory
-    # extract_AP_waveform_features(output_dir='data/wav/features')
+    extract_AP_waveform_features()
     merge_signal_feature_cycle()
