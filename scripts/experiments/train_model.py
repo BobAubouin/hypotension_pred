@@ -9,8 +9,8 @@ from hp_pred.experiments import objective_xgboost
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
 SIGNAL_FEATURE = (['hr', 'rr', 'spo2', 'etco2', 'mac', 'pp_ct', 'rf_ct', 'body_temp'] +
-                #   ['mbp', 'dbp', 'sbp'] +
-                  ['cycle_mean', 'cycle_max', 'cycle_min'] +
+                  #   ['mbp', 'dbp', 'sbp'] +
+                  ['cycle_mean', 'cycle_systol', 'cycle_diastol'] +
                   ['cycle_std', 'cycle_pulse_pressure'] +
                   ['cycle_dPdt_max', 'cycle_dPdt_min', 'cycle_dPdt_mean', 'cycle_dPdt_std'])
 STATIC_FEATURE = ["age", "bmi", "asa"]
