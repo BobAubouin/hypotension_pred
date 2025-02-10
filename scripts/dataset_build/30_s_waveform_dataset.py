@@ -3,7 +3,8 @@ from hp_pred.databuilder import DataBuilder
 
 def main():
     signal_features_names = (['hr', 'rr', 'spo2', 'etco2', 'mac', 'pp_ct', 'rf_ct', 'body_temp'] +
-                             ['mbp', 'dbp', 'sbp'] +
+                            #  ['mbp', 'dbp', 'sbp'] +
+                             ['cycle_mean', 'cycle_max', 'cycle_min'] +
                              ['cycle_std', 'cycle_pulse_pressure'] +
                              ['cycle_dPdt_max', 'cycle_dPdt_min', 'cycle_dPdt_mean', 'cycle_dPdt_std'])
 
@@ -15,9 +16,9 @@ def main():
         signal_features_names=signal_features_names,
         static_data_path="./data/static_data.parquet",
         static_data_names=static_features_names,
-        dataset_output_folder_path="./data/datasets/30_s_waveform_map_dataset",
+        dataset_output_folder_path="./data/datasets/30_s_waveform_dataset",
         sampling_time=30,
-        mbp_column='mbp',
+        mbp_column='cycle_mean',
         leading_time=2*60,
         prediction_window_length=8*60,
         observation_window_length=10*60,

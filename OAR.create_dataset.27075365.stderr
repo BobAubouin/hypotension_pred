@@ -1,0 +1,36 @@
+Traceback (most recent call last):
+  File "/home/aubouinb/hypotension_pred/scripts/dataset_build/30_s_waveform_dataset.py", line 35, in <module>
+    main()
+  File "/home/aubouinb/hypotension_pred/scripts/dataset_build/30_s_waveform_dataset.py", line 30, in main
+    databuilder.build()
+  File "/home/aubouinb/hypotension_pred/src/hp_pred/databuilder.py", line 669, in build
+    raw_data, static_data = self._import_raw()
+                            ^^^^^^^^^^^^^^^^^^
+  File "/home/aubouinb/hypotension_pred/src/hp_pred/databuilder.py", line 229, in _import_raw
+    raw_data = raw_data[self.signal_features_names + ["caseid", "Time"]]
+               ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/aubouinb/.conda/envs/hypo/lib/python3.12/site-packages/pandas/core/frame.py", line 3899, in __getitem__
+    indexer = self.columns._get_indexer_strict(key, "columns")[1]
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/aubouinb/.conda/envs/hypo/lib/python3.12/site-packages/pandas/core/indexes/base.py", line 6114, in _get_indexer_strict
+    self._raise_if_missing(keyarr, indexer, axis_name)
+  File "/home/aubouinb/.conda/envs/hypo/lib/python3.12/site-packages/pandas/core/indexes/base.py", line 6178, in _raise_if_missing
+    raise KeyError(f"{not_found} not in index")
+KeyError: "['cycle_max', 'cycle_min'] not in index"
+Traceback (most recent call last):
+  File "/home/aubouinb/hypotension_pred/scripts/experiments/train_model.py", line 26, in <module>
+    data = pd.read_parquet(dataset_folder / 'cases/')
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/aubouinb/.conda/envs/hypo/lib/python3.12/site-packages/pandas/io/parquet.py", line 670, in read_parquet
+    return impl.read(
+           ^^^^^^^^^^
+  File "/home/aubouinb/.conda/envs/hypo/lib/python3.12/site-packages/pandas/io/parquet.py", line 265, in read
+    path_or_handle, handles, filesystem = _get_path_or_handle(
+                                          ^^^^^^^^^^^^^^^^^^^^
+  File "/home/aubouinb/.conda/envs/hypo/lib/python3.12/site-packages/pandas/io/parquet.py", line 139, in _get_path_or_handle
+    handles = get_handle(
+              ^^^^^^^^^^^
+  File "/home/aubouinb/.conda/envs/hypo/lib/python3.12/site-packages/pandas/io/common.py", line 872, in get_handle
+    handle = open(handle, ioargs.mode)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: 'data/datasets/30_s_waveform_map_dataset/cases'
