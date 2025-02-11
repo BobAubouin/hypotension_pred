@@ -389,6 +389,15 @@ class TestModel():
             'ASA': ['asa'],
             'PREOP_CR': ['preop_cr'],
             'PREOP_HTN': ['preop_htn'],
+            'cycle_mean': [name for name in self.features_names if 'cycle_mean' in name],
+            'cycle_std': [name for name in self.features_names if 'cycle_std' in name],
+            'cycle_systol': [name for name in self.features_names if 'cycle_systol' in name],
+            'cycle_diastol': [name for name in self.features_names if 'cycle_diastol' in name],
+            'cycle_duration': [name for name in self.features_names if 'cycle_duration' in name],
+            'dP/dt_max': [name for name in self.features_names if 'dpdt_max' in name],
+            'dP/dt_min': [name for name in self.features_names if 'dpdt_min' in name],
+            'dP/dt_mean': [name for name in self.features_names if 'dpdt_mean' in name],
+            'dP/dt_std': [name for name in self.features_names if 'dpdt_std' in name],
         }
 
         self.shap_grouped = _grouped_shap(self.shap_values, self.features_names, groups)
