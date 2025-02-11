@@ -388,15 +388,19 @@ def load_labelized_cases(
     databuilder = DataBuilder.from_json(dataset_path)
     if 'chu' in str(databuilder.raw_data_folder):
         databuilder.raw_data_folder = databuilder.raw_data_folder / f"chu_case_{caseid:03d}.parquet"
+    elif 'feature' in str(databuilder.raw_data_folder):
+        databuilder.raw_data_folder = databuilder.raw_data_folder / f"case_{caseid:04d}.parquet"
     else:
         databuilder.raw_data_folder = databuilder.raw_data_folder / f"case-{caseid:04d}.parquet"
+
     case_data, _ = databuilder._import_raw()
     case_data = case_data.reset_index("caseid", drop=True)
     preprocess_case = databuilder._preprocess(case_data)
     label, _ = databuilder._labelize(preprocess_case)
     preprocess_case["label"] = label
+    mbp_column = databuilder.mbp_column
 
-    return preprocess_case
+    return preprocess_case, mbp_column
 
 
 def print_one_stat(series: pd.Series, percent: bool = False) -> bool:
