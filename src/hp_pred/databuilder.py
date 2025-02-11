@@ -378,8 +378,8 @@ class DataBuilder:
             return False
 
         # Any IOH detected in observation or leading window
-        if segment.label[: (self.observation_window_length + self.leading_time)].any():
-            return False
+        # if segment.label[: (self.observation_window_length + self.leading_time)].any():
+        #     return False
 
         # IOH in previous segment
         if previous_segment.label.sum() > 0:
@@ -470,12 +470,12 @@ class DataBuilder:
 
             start_time_previous_segment = max(0, i_time_start - self.recovery_time)
             previous_segment = case_data.iloc[start_time_previous_segment:i_time_start]
+            segment_observations = segment.iloc[: self.observation_window_length]
 
-            if not self._validate_segment(segment, previous_segment):
+            if not self._validate_segment(segment_observations, previous_segment):
                 continue
             segment_id += 1
 
-            segment_observations = segment.iloc[: self.observation_window_length]
             if self.extract_features:
                 segment_features = self._create_segment_features(segment_observations)
             else:
@@ -496,6 +496,12 @@ class DataBuilder:
             segment_features["intervention"] = self.detect_intervention(
                 segment.iloc[self.observation_window_length:]
             )
+
+            segment_features["ioh_at_time_t"] = segment_observations.label.iloc[-1]
+            segment_features["ioh_in_leading_time"] = (
+                segment[self.observation_window_length:self.observation_window_length+self.leading_time].label.sum() > 0
+            )
+            #     return False
 
             if segment_features.label.iloc[0] == 1:
                 segment_features["time_before_IOH"] = (
