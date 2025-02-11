@@ -22,3 +22,5 @@ report/root.*
 # temp file of latex
 cdc_paper/root.*
 !cdc_paper/root.tex
+
+launch*.sh
