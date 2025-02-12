@@ -38,7 +38,7 @@ static = pd.read_parquet(dataset_folder / 'meta.parquet')
 data = data.merge(static, on='caseid')
 # data = data[data['intervention']==0]
 
-train = data[~(data['split']=='train')]
+train = data[data['split']=='train']
 test = data[data['split']=='test']
 
 
