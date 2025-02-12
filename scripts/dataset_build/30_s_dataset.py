@@ -10,7 +10,7 @@ def main():
         signal_features_names=signal_features_names,
         static_data_path="./data/static_data.parquet",
         static_data_names=static_features_names,
-        dataset_output_folder_path="./data/datasets/30_s_filtered_v2_dataset",
+        dataset_output_folder_path="./data/datasets/30_s_dataset",
         sampling_time=30,
         leading_time=2*60,
         prediction_window_length=8*60,
@@ -20,15 +20,15 @@ def main():
         recovery_time=0,
     )
 
-    # databuilder.build()
-    # databuilder.build_meta()
-    extract_feature_from_dir("data/datasets/30_s_filtered_v2_dataset",
-                             segments_length=10*60,
-                             extraction_method='rocket',
-                             output_dir_name="wave_rocket_features",
-                             batch_size=32,
-                             case_id_min=3194,
-                             )
+    databuilder.build()
+    databuilder.build_meta()
+    # extract_feature_from_dir("data/datasets/30_s_filtered_v2_dataset",
+    #                          segments_length=10*60,
+    #                          extraction_method='rocket',
+    #                          output_dir_name="wave_rocket_features",
+    #                          batch_size=32,
+    #                          case_id_min=3194,
+    #                          )
 
 
 if __name__ == "__main__":
