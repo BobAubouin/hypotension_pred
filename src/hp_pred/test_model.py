@@ -89,7 +89,7 @@ class TestModel():
 
         self.model_result_file = []
         for model_name in model_filenames:
-            self.model_result_file.append(self.result_folder / f"{model_name}_{self.output_name}.pkl")
+            self.model_result_file.append(self.result_folder / f"{model_name[:-5]}_{self.output_name}.pkl")
 
         self.n_bootstraps = n_bootstraps
         self.rng_seed = 42  # control reproducibility
@@ -162,6 +162,7 @@ class TestModel():
     def load_baseline_results(self):
         with self.baseline_result_file.open("rb") as f:
             self.dict_results_baseline = pickle.load(f)
+        self.baseline_recall = np.median(self.dict_results_baseline["recall_threshold"])
         model_baseline = CalibratedClassifierCV()
         x_train = self.train_data[BASELINE_FEATURE].to_numpy().reshape(-1, 1)
         model_baseline.fit(x_train, self.y_train)

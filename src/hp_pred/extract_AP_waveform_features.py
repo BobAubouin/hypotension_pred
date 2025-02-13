@@ -38,7 +38,7 @@ def extract_basic_feature_from_cycle(data_wav: pd.DataFrame):
     sample_rate = 1 / (data_wav['Time'].iloc[1] - data_wav['Time'].iloc[0])
 
     # Compute dP/dt for all rows in advance
-    dPdt = data_wav['ap'].diff().rolling(3).mean() * sample_rate
+    dPdt = data_wav['ap'].diff() * sample_rate
 
     # Define aggregation functions for efficient computation
     feature_dict = {
@@ -108,7 +108,8 @@ def extract_AP_waveform_features(
     file_list = list(Path(waveform_dir).glob('*.parquet'))
 
     # do not process if file already in the output directory
-    file_list = [file for file in file_list if not (Path(output_dir) / f'case_{int(file.stem.split("-")[1]):04d}.parquet').exists()]
+    file_list = [file for file in file_list if not (
+        Path(output_dir) / f'case_{int(file.stem.split("-")[1]):04d}.parquet').exists()]
 
     if not Path(output_dir).exists():
         Path(output_dir).mkdir(parents=True)
@@ -152,6 +153,8 @@ def extract_AP_waveform_features(
 
 def interpolate_patient_features(patient_signal, patient_feature):
     # Reindex features to match signal timestamps
+    if patient_feature.shape[0] == 0:
+        return patient_signal
     new_time = patient_signal["Time"]
     dict_feature = {'Time': new_time}
     for feature in patient_feature.columns:
