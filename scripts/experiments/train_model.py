@@ -4,7 +4,7 @@ import optuna
 import pandas as pd
 import xgboost as xgb
 
-from hp_pred.experiments import bootstrap_test, objective_xgboost
+from hp_pred.experiments import objective_xgboost
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
@@ -19,7 +19,7 @@ HALF_TIME_FILTERING = [60, 3*60, 10*60]
 
 
 dataset_folder = Path("data/datasets/30_s_dataset")
-model_filename = "xgb_not_filter.json"
+model_filename = "xgb_inter_easy_points_filtered.json"
 feature_type = "time"
 
 # import the data frame and add the meta data to the segments
@@ -36,10 +36,13 @@ if feature_type == "wave" or feature_type == "mixt":
 static = pd.read_parquet(dataset_folder / 'meta.parquet')
 
 data = data.merge(static, on='caseid')
-# data = data[data['intervention']==0]
+data = data[data['intervention']==0] # model 2
 
 train = data[data['split']=='train']
 test = data[data['split']=='test']
+
+train = train[train['ioh_at_time_t']==0] # model 1
+train = train[train['ioh_in_leading_time']==0]
 
 
 # control reproducibility
