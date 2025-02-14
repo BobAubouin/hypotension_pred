@@ -1,7 +1,7 @@
 from pathlib import Path
 import multiprocessing as mp
 import os
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 import pandas as pd
 import numpy as np
@@ -46,15 +46,18 @@ def objective_xgboost_regression(
         ),
         "reg_alpha": trial.suggest_float("reg_alpha", 1e-8, 1.0, log=True),
         "reg_lambda": trial.suggest_float("reg_lambda", 1e-8, 1.0, log=True),
-        # "eval_metric": trial.suggest_categorical("eval_metric", ["auc", "aucpr", "logloss", "map"]),
+        "eval_metric": "rmse",
         "objective": "reg:squarederror",
         "nthread": os.cpu_count(),
+        'multi_strategy': 'multi_output_tree',
         # "scale_pos_weight": data.label.value_counts()[0] / data.label.value_counts()[1],
     }
     number_cv_fold = len(data_train)
     assert number_cv_fold == len(data_test), "The number of training and testing data set should be the same."
 
     labels_name = [col for col in data_train[0].columns if "future" in col]
+
+    params['num_target'] = len(labels_name)
 
     # separate training in 3 folds
     rmse_scores = np.zeros(number_cv_fold)
@@ -67,9 +70,10 @@ def objective_xgboost_regression(
         y_validate = data_test[i][labels_name]
 
         optuna_model = XGBRegressor(**params)
-        optuna_model.fit(X_train, y_train)
+        print(X_train.shape, y_train.shape)
+        optuna_model.fit(X_train, y_train, eval_set=[(X_validate, y_validate)], verbose=0)
         # Make predictions
-        y_pred = optuna_model.predict_proba(X_validate)[:, 1]
+        y_pred = optuna_model.predict(X_validate)
 
         # Evaluate predictions with RMSE score
         rmse_scores[i] = root_mean_squared_error(y_validate, y_pred)
