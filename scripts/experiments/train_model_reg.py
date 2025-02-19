@@ -41,9 +41,9 @@ data = data[data['intervention'] == 0]
 train = data[data['split'] == 'train']
 test = data[data['split'] == 'test']
 
-train['cv_split'] = [f'cv_{i%4}' for i in train['caseid']]
+train.loc[:, 'cv_split'] = [f'cv_{i % 4}' for i in train['caseid']]
 
-#remove last split (for training the classification model)
+# remove last split (for training the classification model)
 train = train[train['cv_split'] != 'cv_3']
 
 # control reproducibility
