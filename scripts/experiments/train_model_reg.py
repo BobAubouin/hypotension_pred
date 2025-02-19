@@ -18,8 +18,8 @@ STATIC_FEATURE = ["age", "bmi", "asa"]
 HALF_TIME_FILTERING = [60, 3*60, 10*60]
 
 
-dataset_folder = Path("data/datasets/small_30_s_dataset_reg")
-model_filename = "xgb_small.json"
+dataset_folder = Path("data/datasets/30_s_dataset_reg")
+model_filename = "xgb_reg.json"
 feature_type = "time"
 
 # import the data frame and add the meta data to the segments
@@ -41,6 +41,10 @@ data = data[data['intervention'] == 0]
 train = data[data['split'] == 'train']
 test = data[data['split'] == 'test']
 
+train['cv_split'] = [f'cv_{i%4}' for i in train['caseid']]
+
+#remove last split (for training the classification model)
+train = train[train['cv_split'] != 'cv_3']
 
 # control reproducibility
 rng_seed = 42
@@ -110,7 +114,7 @@ model_file = model_folder / model_filename
 
 
 if model_file.exists():
-    model = xgb.XGBClassifier()
+    model = xgb.XGBRegressor()
     model.load_model(model_file)
 else:
     # create an optuna study
@@ -120,7 +124,7 @@ else:
     data_test_cv = [train[train.cv_split == f'cv_{i}'] for i in range(number_fold)]
     # creat an optuna study
     sampler = optuna.samplers.TPESampler(seed=rng_seed)
-    study = optuna.create_study(direction="maximize", sampler=sampler)
+    study = optuna.create_study(direction="minimize", sampler=sampler)
     study.optimize(
         lambda trial: objective_xgboost_regression(trial, data_train_cv, data_test_cv, FEATURE_NAME),
         n_trials=100,
@@ -133,7 +137,7 @@ else:
     model = xgb.XGBRegressor(**best_params)
     # refit the model with best parameters
 
-    labels_name = [col for col in train[0].columns if "future" in col]
+    labels_name = [col for col in train.columns if "future" in col]
 
     model.fit(train[FEATURE_NAME], train[labels_name], verbose=1)
 

@@ -70,7 +70,6 @@ def objective_xgboost_regression(
         y_validate = data_test[i][labels_name]
 
         optuna_model = XGBRegressor(**params)
-        print(X_train.shape, y_train.shape)
         optuna_model.fit(X_train, y_train, eval_set=[(X_validate, y_validate)], verbose=0)
         # Make predictions
         y_pred = optuna_model.predict(X_validate)
