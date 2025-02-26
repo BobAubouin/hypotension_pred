@@ -91,7 +91,7 @@ N_MAX_ITER_SPLIT = 500_000  # maximum number of iteration for the split
 SMOOTH_PERIOD = 40  # period for the rolling mean in seconds
 
 
-class DataBuilder:
+class DataBuilderReg:
     def _store_parameters(self):
         self.parameters_file = self.dataset_output_folder / PARAMETERS_FILENAME
         self.parameters: dict = {
@@ -190,8 +190,8 @@ class DataBuilder:
         # End (Preprocess)
 
         # Segments parameters
-        self.leading_time = leading_time // sampling_time
-        self.prediction_window_length = prediction_window_length // sampling_time
+        self.leading_time = leading_time // sampling_time - 1
+        self.prediction_window_length = prediction_window_length // sampling_time + 1
         self.observation_window_length = observation_window_length // sampling_time
         self.segment_shift = segment_shift // sampling_time
         self.segment_length = (

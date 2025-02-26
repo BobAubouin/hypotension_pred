@@ -190,8 +190,8 @@ class DataBuilder:
         # End (Preprocess)
 
         # Segments parameters
-        self.leading_time = leading_time // sampling_time
-        self.prediction_window_length = prediction_window_length // sampling_time
+        self.leading_time = leading_time // sampling_time - 1
+        self.prediction_window_length = prediction_window_length // sampling_time + 1
         self.observation_window_length = observation_window_length // sampling_time
         self.segment_shift = segment_shift // sampling_time
         self.segment_length = (
