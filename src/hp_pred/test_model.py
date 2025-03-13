@@ -132,6 +132,16 @@ class TestModel():
             strategy="max_precision",
             target=0.24
         )
+
+        # convert the threshold to MAP value for the baseline
+        for i in range(len(self.dict_results_baseline["threshold_opt"])):
+            self.dict_results_baseline["threshold_opt"][i] = self.test_data[BASELINE_FEATURE].iloc[np.argmin(np.abs(
+                self.dict_results_baseline["threshold_opt"][i] - self.y_pred_baseline))]
+
+        for i in range(len(self.dict_results_baseline["threshold"])):
+            self.dict_results_baseline["threshold"][i] = self.test_data[BASELINE_FEATURE].iloc[np.argmin(np.abs(
+                self.dict_results_baseline["threshold"][i] - self.y_pred_baseline))]
+
         self.baseline_recall = np.median(self.dict_results_baseline["recall_threshold"])
         with self.baseline_result_file.open("wb") as f:
             pickle.dump(self.dict_results_baseline, f)
