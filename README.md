@@ -51,7 +51,7 @@ The class `hp_pred.databuilder.DataBuilder` is used to create the segmented data
 
 ### Recreate JBHI results
 
-The results associated with our paper can be replicated using the version of the git tagged 'jbhi_XP'.
+The results associated with our paper can be replicated using the version of the git tagged [jbhi_XP](https://github.com/BobAubouin/hypotension_pred/releases/tag/jbhi_XP).
 
 - First download data from VitalDB using the command `python -m hp_pred.dataset_download`. It will download the raw data in the `data/cases` foler.
 - Then create the segmented dataset running the script `scripts/dataset_build/30_s_dataset.py`. It will create a new folder in `data/datasets` with the segmented data.
