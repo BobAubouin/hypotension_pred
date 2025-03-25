@@ -6,14 +6,12 @@ from typing import Dict, List
 import pandas as pd
 import numpy as np
 from xgboost import XGBClassifier, XGBRegressor
-from sklearn.metrics import auc, roc_curve, average_precision_score, root_mean_squared_error
+from sklearn.metrics import auc, roc_curve, average_precision_score, root_mean_squared_error, precision_recall_curve
 from hp_pred.databuilder import DataBuilder
 from optuna import Trial
 from tqdm import tqdm
 from scipy.stats import shapiro
 
-
-NUMBER_CV_FOLD = 3
 N_INTERPOLATION = 1000
 
 
@@ -140,7 +138,70 @@ def objective_xgboost(
     return ap_scores.mean()
 
 
-def precision_event_recall(y_true: np.ndarray, y_pred: np.ndarray, label_id: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def operationnal_precision_recall(y_true: np.ndarray, y_pred: np.ndarray, label_id: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Calculate precision, recall, and thresholds for precision-recall curve,
+    considering groups of successive positive predictions as single events.
+
+    Args:
+        y_true (np.ndarray): True labels.
+        y_pred (np.ndarray): Predicted probabilities.
+        label_id (np.ndarray): Label IDs.
+
+    Returns:
+        tuple[np.ndarray, np.ndarray, np.ndarray]: A tuple containing the following arrays:
+            - precision (np.ndarray): Precision values.
+            - recall (np.ndarray): Recall values.
+            - thresholds (np.ndarray): Thresholds for precision.
+    """
+    # Compute distinct threshold indices
+    thresholds = np.unique(y_pred)  # Unique thresholds sorted automatically
+
+    # get a mximized number of thresholds
+    thresholds = np.linspace(np.min(thresholds), np.max(thresholds), np.min([100, len(thresholds)]))
+
+    precisions = []
+    recalls = []
+
+    nb_unique_label = len(np.unique(label_id[np.where(y_true == 1)[0]]))
+
+    for threshold in thresholds:
+        # Identify events dynamically for the current threshold
+        above_threshold = (y_pred >= threshold).astype(int)
+
+        alert_id = np.where(np.diff(above_threshold) == 1)[0]+1
+        if above_threshold[0]:
+            alert_id = np.hstack([0, alert_id])
+
+        # Include events where label_id changes but threshold remains above
+        label_change_idx = np.where(label_id[1:] != label_id[:-1])[0] + 1
+        alert_id = np.unique(np.concatenate((alert_id, label_change_idx[above_threshold[label_change_idx] == 1])))
+
+        true_alert = np.sum(y_true[alert_id])
+        false_alert = len(alert_id) - true_alert
+
+        precisions.append(true_alert / (true_alert + false_alert) if true_alert + false_alert > 0 else 0)
+        # number of unique labels in the alert
+        alert_label = label_id[alert_id]
+        counted_labels = np.unique(alert_label[np.where(y_true[alert_id] == 1)[0]])
+
+        recalls.append(len(counted_labels) / nb_unique_label if nb_unique_label > 0 else 0)
+
+    # Append initial values for PR curve
+    precisions = np.hstack([1, precisions])
+    recalls = np.hstack([0, recalls])
+
+    # sort the values by recall
+    idx = np.argsort(recalls)
+    idx_thres = np.argsort(recalls[1:])
+    precisions = precisions[idx]
+    recalls = recalls[idx]
+    thresholds = thresholds[idx_thres]
+
+    return precisions, recalls, thresholds
+
+
+def precision_event_recall_old(y_true: np.ndarray, y_pred: np.ndarray, label_id: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Calculate precision, recall and thresholds for precision-recall curve.
 
@@ -243,43 +304,45 @@ def get_all_stats(
             - precision_threshold (float): Precision threshold.
             - recall_threshold (float): Recall threshold.
     """
-    precision, recall, thr_pr = precision_event_recall(y_true, y_pred, label_id)
+    op_precision, op_recall, thr_ope = operationnal_precision_recall(y_true, y_pred, label_id)
     ap = average_precision_score(y_true, y_pred)
+    precision, recall, thr_std = precision_recall_curve(y_true, y_pred)
 
-    fpr, tpr, thr = roc_curve(y_true, y_pred)
+    fpr, tpr, threshold_auc = roc_curve(y_true, y_pred)
     auc_ = float(auc(fpr, tpr))
+    au_op_prc = auc(op_recall, op_precision)
     auprc = auc(recall, precision)
 
     if strategy == 'max_precision':
         # find the threshold that optimize the precision after a recall of 0.1
-        max_precision = np.max(precision[recall > 0.02])
-        id_thresh_opt_prc = int(np.argmin(np.abs(precision - max_precision)))
+        max_precision = np.max(op_precision[op_recall > 0.02])
+        id_thresh_opt_prc = int(np.argmin(np.abs(op_precision - max_precision)))
     elif strategy == 'targeted_precision':
-        id_thresh_opt_prc = int(np.argmin(np.abs(precision - target)))
+        id_thresh_opt_prc = int(np.argmin(np.abs(op_precision - target)))
     elif strategy == 'targeted_recall':
-        id_thresh_opt_prc = int(np.argmin(np.abs(recall - target)))
+        id_thresh_opt_prc = int(np.argmin(np.abs(op_recall - target)))
     elif strategy == 'fixed_threshold':
-        id_thresh_opt_prc = int(np.argmin(np.abs(thr_pr - target)))
+        id_thresh_opt_prc = int(np.argmin(np.abs(thr_ope - target)))
 
-    threshold_opt = thr_pr[id_thresh_opt_prc]
+    threshold_opt = thr_ope[id_thresh_opt_prc]
 
-    precision_threshold = precision[id_thresh_opt_prc]
-    recall_threshold = recall[id_thresh_opt_prc]
+    op_precision_threshold = op_precision[id_thresh_opt_prc]
+    op_recall_threshold = op_recall[id_thresh_opt_prc]
 
     nb_unique_label = len(np.unique(label_id[np.where(y_true == 1)[0]]))
     prevalence = nb_unique_label / (nb_unique_label + np.sum(1-y_true))
 
-    term1 = prevalence / recall_threshold
-    term2 = (1 - precision_threshold) / precision_threshold
+    term1 = prevalence / op_recall_threshold
+    term2 = (1 - op_precision_threshold) / op_precision_threshold
 
     # Calculate specificity
     specificity = (1 - prevalence) / (term1 * term2 + (1 - prevalence))
 
-    npv = (specificity * (1 - prevalence)) / (specificity * (1 - prevalence) + (1 - recall_threshold) * prevalence)
+    npv = (specificity * (1 - prevalence)) / (specificity * (1 - prevalence) + (1 - op_recall_threshold) * prevalence)
 
-    f1 = 2 * (precision_threshold * recall_threshold) / (precision_threshold + recall_threshold)
+    f1 = 2 * (op_precision_threshold * op_recall_threshold) / (op_precision_threshold + op_recall_threshold)
 
-    return auc_, specificity, npv, fpr, tpr, thr, precision, recall, thr_pr, ap, auprc, precision_threshold, recall_threshold, f1, threshold_opt
+    return auc_, specificity, npv, fpr, tpr, threshold_auc, op_precision, op_recall, thr_ope, ap, au_op_prc, op_precision_threshold, op_recall_threshold, f1, threshold_opt, precision, recall, thr_std, auprc
 
 
 def bootstrap_worker(args):
@@ -296,23 +359,30 @@ def bootstrap_worker(args):
             npv,
             fpr,
             tpr,
-            thr,
-            precision,
-            recall,
-            thr_pr,
+            threshold_auc,
+            op_precision,
+            op_recall,
+            thr_ope,
             ap,
-            auprc,
+            au_op_prc,
             precision_threshold,
             recall_threshold,
             f1,
             threshold_opt,
+            precision,
+            recall,
+            thr_std,
+            auprc,
+
         ) = get_all_stats(y_true[indices], y_pred[indices], y_label_id[indices], strategy, target)
 
         tpr_interpolated = np.interp(xs_interpolation, fpr, tpr)
-        thr_interpolated = np.interp(xs_interpolation, fpr, np.clip(thr, -100, 100))
-        precision_interpolated = np.interp(recall_levels, recall, precision)
-        precision_interpolated[0] = 1
-        thr_pr_interpolated = np.interp(recall_levels, recall[1:], thr_pr)
+        threshold_auc = np.interp(xs_interpolation, fpr, np.clip(threshold_auc, -100, 100))
+        op_precision_interpolated = np.interp(recall_levels, op_recall, op_precision)
+        op_precision_interpolated[0] = 1
+        threshold_precision_opertional = np.interp(recall_levels, op_recall[1:], thr_ope)
+        precision_interpolated = np.interp(recall_levels, recall[::-1], precision[::-1])
+        threshold_precision_standard = np.interp(recall_levels, recall[-2::-1], thr_std[::-1])
 
         return (
             auc,
@@ -320,14 +390,17 @@ def bootstrap_worker(args):
             npv,
             ap,
             tpr_interpolated,
-            thr_interpolated,
-            precision_interpolated,
-            thr_pr_interpolated,
-            auprc,
+            threshold_auc,
+            op_precision_interpolated,
+            threshold_precision_opertional,
+            au_op_prc,
             precision_threshold,
             recall_threshold,
             f1,
             threshold_opt,
+            precision_interpolated,
+            threshold_precision_standard,
+            auprc,
         )
 
 
@@ -370,15 +443,18 @@ def bootstrap_test(
 
     # Initialize arrays to store the results
     aucs = np.zeros(n_bootstraps, dtype=float)
+    auprcs = np.zeros(n_bootstraps, dtype=float)
     tprs_interpolated = np.zeros((n_bootstraps, N_INTERPOLATION), dtype=float)
-    thrs_interpolated = np.zeros((n_bootstraps, N_INTERPOLATION), dtype=float)
+    op_precision_interpolated = np.zeros((n_bootstraps, N_INTERPOLATION), dtype=float)
     precision_interpolated = np.zeros((n_bootstraps, N_INTERPOLATION), dtype=float)
-    thrs_interpolated_precision = np.zeros((n_bootstraps, N_INTERPOLATION), dtype=float)
+    threshold_auc = np.zeros((n_bootstraps, N_INTERPOLATION), dtype=float)
+    threshold_operational = np.zeros((n_bootstraps, N_INTERPOLATION), dtype=float)
+    threshold_standard_prc = np.zeros((n_bootstraps, N_INTERPOLATION), dtype=float)
 
     specificities = np.zeros(n_bootstraps, dtype=float)
     npvs = np.zeros(n_bootstraps, dtype=float)
     aps = np.zeros(n_bootstraps, dtype=float)
-    auprcs = np.zeros(n_bootstraps, dtype=float)
+    au_op_prcs = np.zeros(n_bootstraps, dtype=float)
     precision_thresholds = np.zeros(n_bootstraps, dtype=float)
     recall_thresholds = np.zeros(n_bootstraps, dtype=float)
     f1s = np.zeros(n_bootstraps, dtype=float)
@@ -391,14 +467,17 @@ def bootstrap_test(
             npv,
             ap,
             tpr_interpolated,
-            thr_interpolated,
-            precision_interpolated_,
-            thr_pr_interpolated,
-            auprc,
+            threshold_auc_,
+            op_precision_interpolated_,
+            threshold_precision_opertional,
+            au_op_prc,
             precision_threshold,
             recall_threshold,
             f1,
             threshold_opt,
+            precision_interpolated_,
+            threshold_precision_standard,
+            auprc,
         ) = result
 
         aucs[i] = auc
@@ -406,34 +485,40 @@ def bootstrap_test(
         npvs[i] = npv
         aps[i] = ap
         auprcs[i] = auprc
+        au_op_prcs[i] = au_op_prc
         precision_thresholds[i] = precision_threshold
         recall_thresholds[i] = recall_threshold
         f1s[i] = f1
         threshold_opts[i] = threshold_opt
 
         tprs_interpolated[i] = tpr_interpolated
-        thrs_interpolated[i] = thr_interpolated
         precision_interpolated[i] = precision_interpolated_
-        thrs_interpolated_precision[i] = thr_pr_interpolated
+        op_precision_interpolated[i] = op_precision_interpolated_
+        threshold_auc[i] = threshold_auc_
+        threshold_operational[i] = threshold_precision_opertional
+        threshold_standard_prc[i] = threshold_precision_standard
 
     dict = {
         "fprs": xs_interpolation,
         "tpr": tprs_interpolated,
-        "threshold": thr_interpolated,
+        "threshold_auc": threshold_auc,
         "aucs": aucs,
         "specificity": specificities,
         "npvs": npvs,
-        "recall": recall_levels,
+        "op_recall": recall_levels,
         "precision": precision_interpolated,
-        "thr_precision": thrs_interpolated_precision,
+        "threshold_precision_standard": threshold_standard_prc,
+        "op_precision": op_precision_interpolated,
+        "op_threshold": threshold_operational,
         "aps": aps,
         "auprcs": auprcs,
-        "precision_threshold": precision_thresholds,
+        "au_op_prcs": au_op_prcs,
+        "op_precision_threshold": precision_thresholds,
         "recall_threshold": recall_thresholds,
         "f1": f1s,
         "threshold_opt": threshold_opts,
     }
-    return dict, precision_interpolated, thrs_interpolated_precision
+    return dict, precision_interpolated, threshold_operational
 
 
 def load_labelized_cases(
@@ -498,18 +583,18 @@ def print_statistics(dict: Dict[str, pd.DataFrame]) -> None:
         df (pd.DataFrame): DataFrame containing the evaluation metrics.
     """
     df = pd.DataFrame()
-    for key in ["aucs", "aps", "auprcs", "threshold_opt", "recall_threshold", "precision_threshold", "specificity", "npvs", "f1"]:
+    for key in ["aucs", "aps", "auprcs", "threshold_opt", "recall_threshold", "specificity", "npvs", "f1", "au_op_prcs", "op_precision_threshold"]:
         df[key] = dict[key]
     print('----- General stats -----')
-    print(f"AUC: {print_one_stat(df.aucs, False)}")
-    print(f"AP: {print_one_stat(df.aps, False)}")
+    print(f"AUCROC: {print_one_stat(df.aucs, False)}")
     print(f"AUPRC: {print_one_stat(df.auprcs, False)}")
+    print(f"Operational AUPRC: {print_one_stat(df.au_op_prcs, False)}")
 
     print('----- At threshold stats -----')
     print(f"Threshold: {print_one_stat(df.threshold_opt, False)}")
-    print(f"Recall: {print_one_stat(df.recall_threshold, True)}")
-    print(f"Precision: {print_one_stat(df.precision_threshold, True)}")
-    print(f"Specificity: {print_one_stat(df.specificity, True)}")
-    print(f"NPV: {print_one_stat(df.npvs, True)}")
-    print(f"F1-score: {print_one_stat(df.f1, True)}")
+    print(f"Operational Recall: {print_one_stat(df.recall_threshold, True)}")
+    print(f"Operational Precision: {print_one_stat(df.op_precision_threshold, True)}")
+    print(f"Operational Specificity: {print_one_stat(df.specificity, True)}")
+    print(f"Operational NPV: {print_one_stat(df.npvs, True)}")
+    print(f"Operational F1-score: {print_one_stat(df.f1, True)}")
     return

@@ -369,6 +369,28 @@ class DataBuilder:
                     return True
         return False
 
+    def detect_intervention_map(self, segment: pd.DataFrame) -> bool:
+        # Remove part of the segment after label==1 to only consider intervention before possible IOH
+        if segment.label.sum() > 0:
+            time_label = segment.label.idxmax()
+            if time_label > segment.index[0]:
+                time_label -= pd.Timedelta(seconds=self.sampling_time)
+            segment = segment.loc[: time_label]
+
+        # test if there is a sudden change in the mbp value
+        fastThr = 5
+        slowThr = 8
+        # detect a sudden increase in the mean arterial pressure
+        for id in range(0, len(segment)-2):
+            if segment.mbp.iloc[id+1]-segment.mbp.iloc[id] > fastThr and segment.mbp.iloc[id] < 75.5 and segment.mbp.iloc[id+2]-segment.mbp.iloc[id+1] > -1:
+                return True
+        # detect a slower decrease in the mean arterial pressure
+        for id in range(0, len(segment)-4):
+            if segment.mbp.iloc[id:id+4].max()-segment.mbp.iloc[id] > slowThr and segment.mbp.iloc[id] < 75.5:
+                return True
+
+        return False
+
     def _validate_segment(
         self, segment: pd.DataFrame, previous_segment: pd.DataFrame
     ) -> bool:
@@ -494,6 +516,9 @@ class DataBuilder:
 
             segment_features["time"] = segment_observations.index[-1]
             segment_features["intervention"] = self.detect_intervention(
+                segment.iloc[self.observation_window_length:]
+            )
+            segment_features["intervention_map"] = self.detect_intervention_map(
                 segment.iloc[self.observation_window_length:]
             )
 

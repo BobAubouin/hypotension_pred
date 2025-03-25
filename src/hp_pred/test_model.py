@@ -5,14 +5,19 @@ from itertools import chain, repeat
 import pandas as pd
 import numpy as np
 import xgboost as xgb
+from aeon.classification.deep_learning import IndividualLITEClassifier
+from sklearn.ensemble import VotingClassifier
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 import shap
 from sklearn.calibration import calibration_curve
 from sklearn.calibration import CalibratedClassifierCV
+from sklearn.metrics import brier_score_loss
 
 import hp_pred.experiments as expe
 
 BASELINE_FEATURE = "last_map_value"
+BASIC_COLORS = list(mcolors.TABLEAU_COLORS.values())
 
 
 def _revert_dict(d):
@@ -58,6 +63,26 @@ def expected_calibration_error(confidences, true_labels, M=5):
     return ece
 
 
+def reformat_time_data(data, signals_names):
+    def get_signal_time(signal):
+        try:
+            return int(signal.split('_')[2])
+        # except list index out of range
+        except:
+            try:
+                return int(signal.split('_')[3])
+            except:
+                return 0
+
+    grouped_columns = {
+        signal: sorted([col for col in data.columns if col.startswith(signal)], key=get_signal_time)
+        for signal in signals_names
+    }
+
+    X = np.stack([data[cols].values for cols in grouped_columns.values()], axis=1)
+    return X
+
+
 class TestModel():
     def __init__(
             self,
@@ -65,6 +90,7 @@ class TestModel():
             train_data: pd.DataFrame,
             model_filenames: list[str],
             output_name: str,
+            plot_name: list[str] = None,
             n_bootstraps: int = 200,
     ):
 
@@ -74,13 +100,26 @@ class TestModel():
         # test if the model path is valid
         self.model = []
         for filename in model_filenames:
-            self.model += [xgb.XGBClassifier()]
-            model_path = Path("data/models") / filename
-            try:
-                self.model[-1].load_model(model_path)
-            except:
-                raise ValueError("The model path is not valid")
-
+            if filename.endswith(".keras"):
+                lite_list = []
+                for i in range(3):
+                    lite = IndividualLITEClassifier()
+                    lite.load_model(model_path=Path("data/models") / (filename[:-6]+str(i)+'.keras'),
+                                    classes=[0, 1],
+                                    )
+                    lite_list.append(lite)
+                model = VotingClassifier(lite_list, voting='soft')
+                self.model += [model]
+            elif filename.endswith(".json"):
+                self.model += [xgb.XGBClassifier()]
+                model_path = Path("data/models") / filename
+                try:
+                    self.model[-1].load_model(model_path)
+                except:
+                    raise ValueError("The model path is not valid")
+        if plot_name is None:
+            plot_name = [f"model {i}" for i in range(len(model_filenames))]
+        self.plot_name = plot_name
         self.output_name = output_name
         self.result_folder = Path("data/results")
         if not self.result_folder.exists():
@@ -132,6 +171,21 @@ class TestModel():
             strategy="max_precision",
             target=0.24
         )
+
+        for i in range(len(self.dict_results_baseline["threshold_opt"])):
+            self.dict_results_baseline["threshold_opt"][i] = self.test_data[BASELINE_FEATURE].iloc[np.argmin(np.abs(
+                self.dict_results_baseline["threshold_opt"][i] - self.y_pred_baseline))]
+
+        for i in range(len(self.dict_results_baseline["threshold_precision_standard"])):
+            for j in range(len(self.dict_results_baseline["threshold_precision_standard"][i])):
+                self.dict_results_baseline["threshold_precision_standard"][i, j] = self.test_data[BASELINE_FEATURE].iloc[np.argmin(np.abs(
+                    self.dict_results_baseline["threshold_precision_standard"][i, j] - self.y_pred_baseline))]
+
+        for i in range(len(self.dict_results_baseline["op_threshold"])):
+            for j in range(len(self.dict_results_baseline["op_threshold"][i])):
+                self.dict_results_baseline["op_threshold"][i, j] = self.test_data[BASELINE_FEATURE].iloc[np.argmin(np.abs(
+                    self.dict_results_baseline["op_threshold"][i, j] - self.y_pred_baseline))]
+
         self.baseline_recall = np.median(self.dict_results_baseline["recall_threshold"])
         with self.baseline_result_file.open("wb") as f:
             pickle.dump(self.dict_results_baseline, f)
@@ -143,7 +197,7 @@ class TestModel():
             self.y_pred_model.append(model.predict_proba(self.test_data[self.features_names])[:, 1])
             y_label_ids = self.test_data["label_id"].to_numpy()
 
-            print(f"Model {i} test:")
+            print(f"{self.plot_name[i]} test:")
             dict_result, _, _ = expe.bootstrap_test(
                 self.y_test,
                 self.y_pred_model[-1],
@@ -188,15 +242,133 @@ class TestModel():
 
         print('\n')
         for i, dict_results_model in enumerate(self.dict_results_model):
-            print(f"Model {i}")
+            print(self.plot_name[i])
             expe.print_statistics(dict_results_model)
             print('\n')
         return
 
-    def plot_precision_recall(self):
+    def update_results_to_min_map_threshold(self, min_map_threshold):
+        # find recall associated with the min_map_threshold
+        recall = np.linspace(0, 1, 1000)
+        threshold = self.dict_results_baseline['op_threshold']
+        self.recall_threshold_op = recall[np.argmin(np.abs(threshold.mean(0) - min_map_threshold))]
+
+        for i, precision_op in enumerate(self.dict_results_baseline['op_precision']):
+            precision_op[self.recall_threshold_op > recall] = 0
+            self.dict_results_baseline['au_op_prcs'][i] = np.trapz(
+                precision_op, recall
+            ) / (1 - self.recall_threshold_op)
+
+        # update aucs thanks to the new recall_threshold
+        for i, dict_results_model in enumerate(self.dict_results_model):
+            for j, precision_op in enumerate(dict_results_model['op_precision']):
+                precision_op[self.recall_threshold_op > recall] = 0
+                self.dict_results_model[i]['au_op_prcs'][j] = np.trapz(
+                    precision_op, recall
+                ) / (1 - self.recall_threshold_op)
+
+        # same fpr standard precision recall curve
+        threshold = self.dict_results_baseline['threshold_precision_standard']
+        self.recall_threshold_std = recall[np.argmin(np.abs(threshold.mean(0) - min_map_threshold))]
+
+        for i, precision_std in enumerate(self.dict_results_baseline['precision']):
+            precision_std[self.recall_threshold_std > recall] = 0
+            self.dict_results_baseline['auprcs'][i] = np.trapz(
+                precision_std, recall
+            ) / (1 - self.recall_threshold_std)
+        for i, dict_results_model in enumerate(self.dict_results_model):
+            for j, precision_op in enumerate(dict_results_model['precision']):
+                precision_op[self.recall_threshold_std > recall] = 0
+                self.dict_results_model[i]['auprcs'][j] = np.trapz(
+                    precision_op, recall
+                ) / (1 - self.recall_threshold_std)
+
+    def plot_operationnal_precision_recall(self):
         if not hasattr(self, "dict_results_baseline") or not hasattr(self, "dict_results_model"):
             raise ValueError("Results not loaded")
 
+        recall = np.linspace(0, 1, 1000)
+        if not hasattr(self, "recall_threshold_op"):
+            self.recall_threshold_op = 0
+
+        for i, dict_results_model in enumerate(self.dict_results_model):
+            precision_mean, precision_std = dict_results_model['op_precision'].mean(
+                0), dict_results_model['op_precision'].std(0)
+            plt.fill_between(
+                recall, precision_mean - 2 * precision_std, precision_mean + 2 * precision_std, alpha=0.2
+            )
+            plt.plot(recall, precision_mean, label=f"{self.plot_name[i]} (AUPRC = {
+                     expe.print_one_stat(pd.Series(dict_results_model['au_op_prcs']), False)})")
+
+        # add baseline to the plot
+
+        plt.fill_between(
+            self.dict_results_baseline['fprs'],
+            self.dict_results_baseline['op_precision'].mean(0) - 2 * self.dict_results_baseline['op_precision'].std(0),
+            self.dict_results_baseline['op_precision'].mean(0) + 2 * self.dict_results_baseline['op_precision'].std(0),
+            alpha=0.2,
+        )
+        plt.plot(
+            self.dict_results_baseline['fprs'],
+            self.dict_results_baseline['op_precision'].mean(0),
+            label=f"baseline (AUPRC = {expe.print_one_stat(pd.Series(self.dict_results_baseline['au_op_prcs']), False)})",
+        )
+
+        plt.plot([0, 1], [self.dict_results_baseline['op_precision'].mean(0)[-1]]*2, "k--")
+        plt.xlabel("Operationnal Recall")
+        plt.ylabel("Operationnal Precision")
+        plt.ylim(-0.05, 1.05)
+        plt.xlim(self.recall_threshold_op, 1)
+        plt.title("Operationnal PRC")
+        plt.legend()
+        plt.grid()
+        plt.tight_layout()
+        plt.savefig(f"output/{self.output_name}_operationnal_prc.pdf", bbox_inches='tight')
+        plt.show()
+
+    def plot_roc_curve(self):
+        if not hasattr(self, "dict_results_baseline") or not hasattr(self, "dict_results_model"):
+            raise ValueError("Results not loaded")
+
+        fpr = np.linspace(0, 1, 1000)
+        for i, dict_results_model in enumerate(self.dict_results_model):
+            tpr_mean, tpr_std = dict_results_model['tpr'].mean(
+                0), dict_results_model['tpr'].std(0)
+            plt.fill_between(
+                fpr, tpr_mean - 2 * tpr_std, tpr_mean + 2 * tpr_std, alpha=0.2
+            )
+            plt.plot(fpr, tpr_mean, label=f"{self.plot_name[i]} (AUROC = {
+                     expe.print_one_stat(pd.Series(dict_results_model['aucs']), False)})")
+
+        # add baseline to the plot
+        plt.fill_between(
+            self.dict_results_baseline['fprs'],
+            self.dict_results_baseline['tpr'].mean(0) - 2 * self.dict_results_baseline['tpr'].std(0),
+            self.dict_results_baseline['tpr'].mean(0) + 2 * self.dict_results_baseline['tpr'].std(0),
+            alpha=0.2,
+        )
+        plt.plot(
+            self.dict_results_baseline['fprs'],
+            self.dict_results_baseline['tpr'].mean(0),
+            label=f"baseline (AUROC = {expe.print_one_stat(pd.Series(self.dict_results_baseline['aucs']), False)})",
+        )
+
+        plt.grid()
+        plt.xlabel("Sensitivity")
+        plt.ylabel("Specificity")
+        plt.title("ROC curve")
+
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(f"output/{self.output_name}_roc.pdf", bbox_inches='tight')
+        plt.show()
+
+    def plot_pr_curve(self):
+        if not hasattr(self, "dict_results_baseline") or not hasattr(self, "dict_results_model"):
+            raise ValueError("Results not loaded")
+
+        if not hasattr(self, "recall_threshold_std"):
+            self.recall_threshold_std = 0
         recall = np.linspace(0, 1, 1000)
         for i, dict_results_model in enumerate(self.dict_results_model):
             precision_mean, precision_std = dict_results_model['precision'].mean(
@@ -204,7 +376,7 @@ class TestModel():
             plt.fill_between(
                 recall, precision_mean - 2 * precision_std, precision_mean + 2 * precision_std, alpha=0.2
             )
-            plt.plot(recall, precision_mean, label=f"model {i} (AUPRC = {
+            plt.plot(recall, precision_mean, label=f"{self.plot_name[i]} (AUPRC = {
                      expe.print_one_stat(pd.Series(dict_results_model['auprcs']), False)})")
 
         # add baseline to the plot
@@ -218,20 +390,22 @@ class TestModel():
         plt.plot(
             self.dict_results_baseline['fprs'],
             self.dict_results_baseline['precision'].mean(0),
-            label=f"baseline (AUPRC = {expe.print_one_stat(pd.Series(self.dict_results_baseline['auprcs']), False)})",
+            label=f"baseline (AUPRC = {expe.print_one_stat(pd.Series(self.dict_results_baseline['au_op_prcs']), False)})",
         )
 
         plt.plot([0, 1], [self.dict_results_baseline['precision'].mean(0)[-1]]*2, "k--")
         plt.xlabel("Recall")
         plt.ylabel("Precision")
         plt.ylim(-0.05, 1.05)
-        plt.xlim(-0.05, 1.05)
-        plt.title("PRC curve")
+        plt.xlim(self.recall_threshold_std, 1)
+        plt.title("PRC")
         plt.legend()
         plt.grid()
+        plt.tight_layout()
+        plt.savefig(f"output/{self.output_name}_prc.pdf", bbox_inches='tight')
         plt.show()
 
-    def plot_calibration_curve(self, n_bins: float = 11):
+    def plot_calibration_curve(self, n_bins: float = 6):
 
         fraction_of_positives_baseline, mean_predicted_value_baseline = calibration_curve(
             self.y_test,
@@ -239,8 +413,18 @@ class TestModel():
             n_bins=n_bins,
             strategy='uniform'
         )
+        # Compute the number of samples in each bin
+        bin_edges = np.linspace(0, 1, n_bins + 1)
+        bin_counts = np.histogram(self.y_pred_baseline, bins=bin_edges)[0]  # Count of samples per bin
+        bin_counts = bin_counts[bin_counts > 0]
+
+        # Normalize marker sizes for visualization
+        min_size, max_size = 20, 300  # Min and max marker sizes
+        marker_sizes_base = np.interp(bin_counts, (bin_counts.min(), bin_counts.max()), (min_size, max_size))
+
         # Compute ECE
-        ece_baseline = expected_calibration_error(self.y_pred_baseline, self.y_test, M=n_bins)
+        # ece_baseline = expected_calibration_error(self.y_pred_baseline, self.y_test, M=n_bins)
+        brier_baseline = brier_score_loss(self.y_test, self.y_pred_baseline)
 
         plt.plot([0, 1], [0, 1], linestyle='--', color='black', label='perfectly calibrated')
         for i, y_pred in enumerate(self.y_pred_model):
@@ -251,26 +435,46 @@ class TestModel():
                 strategy='uniform'
             )
             # Compute ECE
-            ece_model = expected_calibration_error(y_pred, self.y_test, M=n_bins)
+            # ece_model = expected_calibration_error(y_pred, self.y_test, M=n_bins)
+            brier_model = brier_score_loss(self.y_test, y_pred)
+            bin_edges = np.linspace(0, 1, n_bins + 1)
+            bin_counts = np.histogram(y_pred, bins=bin_edges)[0]  # Count of samples per bin
+            bin_counts = bin_counts[bin_counts > 0]
+
+            # Normalize marker sizes for visualization
+            min_size, max_size = 20, 300  # Min and max marker sizes
+            marker_sizes = np.interp(bin_counts, (bin_counts.min(), bin_counts.max()), (min_size, max_size))
+
             plt.plot(mean_predicted_value_model, fraction_of_positives_model,
-                     marker='o', label=f'model {i} (ECE={ece_model:.3f})')
+                     label=f'{self.plot_name[i]} (brier={brier_model:.3f})', color=BASIC_COLORS[i], linewidth=0.5)
+            plt.scatter(mean_predicted_value_model, fraction_of_positives_model,
+                        s=marker_sizes, color=BASIC_COLORS[i], alpha=0.5)
+
         plt.plot(mean_predicted_value_baseline, fraction_of_positives_baseline,
-                 marker='o', label=f'baseline (ECE={ece_baseline:.3f})')
+                 label=f'baseline (brier={brier_baseline:.3f})', linewidth=0.5, color=BASIC_COLORS[i+1])
+        plt.scatter(mean_predicted_value_baseline, fraction_of_positives_baseline,
+                    s=marker_sizes_base, color=BASIC_COLORS[i+1], alpha=0.5)
         plt.xlabel('Predicted probability')
         plt.ylabel('Fraction of positives')
         plt.title('Calibration curve')
         plt.legend()
         plt.grid()
+        plt.tight_layout()
+        plt.savefig(f"output/{self.output_name}_calibration.pdf", bbox_inches='tight')
         plt.show()
 
         fig, ax = plt.subplots(1, len(self.y_pred_model)+1, layout='constrained', sharey=True)
         ax[0].hist(self.y_pred_baseline, bins=20, alpha=0.5, color='orange')
         ax[0].set_title('Baseline')
+        ax[0].set_xlim(0, 1)
         for i, y_pred in enumerate(self.y_pred_model):
 
             ax[i+1].hist(y_pred, bins=20, alpha=0.5)
-            ax[i+1].set_title(f'Model {i}')
+            ax[i+1].set_title(f'{self.plot_name[i]}')
+            ax[i+1].set_xlim(0, 1)
         fig.suptitle('Histogram of predicted probabilities')
+        plt.tight_layout()
+        plt.savefig(f"output/{self.output_name}_distrib.pdf", bbox_inches='tight')
         plt.show()
 
     def run(self,
@@ -288,8 +492,10 @@ class TestModel():
             self.load_model_results()
 
         self.print_results()
-        self.plot_precision_recall()
+        self.plot_operationnal_precision_recall()
         self.plot_calibration_curve()
+        self.plot_roc_curve()
+        self.plot_pr_curve()
 
     def compute_shap_value(self, model_id=0):
         # use SHAP to explain the model
