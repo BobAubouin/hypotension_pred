@@ -28,7 +28,12 @@ FORBIDDEN_OPNAME_CASE = "transplant"
 PERCENT_MISSING_DATA_THRESHOLD = 0.2
 AGE_CASE_THRESHOLD = 18  # years
 BLOOD_LOSS_THRESHOLD = 200  # mL
-BOLUS_THRESHOLD = 20  # mg
+BOLUS_THRESHOLD_EPH = 9  # mg
+BOLUS_THRESHOLD_PHE = 500  # mcg
+BOLUS_THRESHOLD_EPI = 100  # mcg
+BOLUS_THRESHOLD_MDZ = 3  # mg
+BOLUS_THRESHOLD_FTN = 50  # mcg
+BOLUS_THRESHOLD_PPF = 100  # mg
 
 PARQUET_SUBFOLDER_NAME = "cases"
 BASE_FILENAME_DATASET = "cases_data"
@@ -158,10 +163,12 @@ def filter_case_ids(cases: pd.DataFrame, tracks_meta: pd.DataFrame) -> list[int]
         & (cases_with_mbp.caseend > CASEEND_CASE_THRESHOLD)
         & (~cases_with_mbp.opname.str.contains(FORBIDDEN_OPNAME_CASE, case=False))
         & (~cases_with_mbp.optype.str.contains(FORBIDDEN_OPNAME_CASE, case=False))
-        & (cases_with_mbp.intraop_eph <= BOLUS_THRESHOLD)
-        & (cases_with_mbp.intraop_phe <= BOLUS_THRESHOLD)
-        & (cases_with_mbp.intraop_epi <= BOLUS_THRESHOLD)
-        & (cases_with_mbp.intraop_mdz <= BOLUS_THRESHOLD)
+        & (cases_with_mbp.intraop_eph <= BOLUS_THRESHOLD_EPH)
+        & (cases_with_mbp.intraop_phe <= BOLUS_THRESHOLD_PHE)
+        & (cases_with_mbp.intraop_epi <= BOLUS_THRESHOLD_EPI)
+        & (cases_with_mbp.intraop_mdz <= BOLUS_THRESHOLD_MDZ)
+        & (cases_with_mbp.intraop_ftn <= BOLUS_THRESHOLD_FTN)
+        & (cases_with_mbp.intraop_ppf <= BOLUS_THRESHOLD_PPF)
         & (cases_with_mbp.emop == 0)
         & (
             (cases_with_mbp.intraop_ebl < BLOOD_LOSS_THRESHOLD)
