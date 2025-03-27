@@ -252,8 +252,15 @@ class DataBuilder:
         # remove too low value (before the start of the measurement)
         if 'mbp' not in case_data.columns:
             return case_data
-        case_data.mbp.mask(case_data.mbp < self.min_mbp_segment, inplace=True)
-        case_data.mbp.mask(case_data.mbp > self.max_mbp_segment, inplace=True)
+
+        wrong_bp = (
+            (case_data.mbp < self.min_mbp_segment)
+            | (case_data.mbp > self.max_mbp_segment)
+            | (case_data.sbp - case_data.dbp < 20)
+            | (case_data.sbp - case_data.dbp > 150)
+        )
+
+        case_data.loc[wrong_bp, ['mbp', 'sbp', 'dbp']] = np.nan
 
         # removing the nan values at the beginning and the ending
         case_valid_mask = ~case_data.mbp.isna()
@@ -303,9 +310,10 @@ class DataBuilder:
                 case_data[drug].fillna(0, inplace=True)
         if 'mbp' not in case_data.columns:
             return case_data
-        case_data.mbp = case_data.mbp.interpolate()
-        case_data.sbp = case_data.sbp.interpolate()
-        case_data.dbp = case_data.dbp.interpolate()
+        # only interpolate the blood pressure values if less than 5 values are missing
+        case_data.mbp = case_data.mbp.interpolate(limit=5)
+        case_data.sbp = case_data.sbp.interpolate(limit=5)
+        case_data.dbp = case_data.dbp.interpolate(limit=5)
 
         return case_data
 
