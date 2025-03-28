@@ -14,7 +14,7 @@ def segment_cardiac_cycle(data_wav: pd.DataFrame):
     sampling_time = data_wav['Time'].iloc[1] - data_wav['Time'].iloc[0]
 
     # Find the troughs (inverted peaks) of the AP waveform
-    scale_ampd = int(0.5 / sampling_time)
+    scale_ampd = int(1 / sampling_time)
     if len(data_wav['ap'].fillna(0)) == 0:
         thought = []
     else:
@@ -29,6 +29,36 @@ def segment_cardiac_cycle(data_wav: pd.DataFrame):
     data_wav['cycle_id'] = cycle_id
 
     return data_wav
+
+
+def normalize_cycle(cycle):
+    cycle_min = np.min(cycle)
+    cycle_max = np.max(cycle)
+    amplitude = cycle_max - cycle_min
+    if amplitude == 0:  # Avoid division by zero
+        return cycle - cycle_min  # If amplitude is 0, return all zeros
+    return (cycle - cycle_min) / amplitude  # Normalize to [0, 1]
+
+
+def compute_cycle_distance(cycle_1, cycle_2):
+    """Computes the Euclidean distance between two cycles."""
+
+    # ensure cycles are consecutives
+    if np.abs(cycle_2['Time'].iloc[0] - cycle_1['Time'].iloc[-1]) > 0.5:
+        return np.nan
+    cycle_1 = cycle_1['ap'].values
+    cycle_2 = cycle_2['ap'].values
+    cycle_1_normalized = normalize_cycle(cycle_1)
+    cycle_2_normalized = normalize_cycle(cycle_2)
+
+    # Ensure both cycles have the same length (truncate to the minimum length)
+    min_len = min(len(cycle_1_normalized), len(cycle_2_normalized))
+    cycle_1_normalized = cycle_1_normalized[:min_len]
+    cycle_2_normalized = cycle_2_normalized[:min_len]
+
+    # Compute Euclidean distance
+    distance = np.linalg.norm(cycle_1_normalized - cycle_2_normalized)
+    return distance
 
 
 def extract_basic_feature_from_cycle(data_wav: pd.DataFrame):
@@ -61,6 +91,32 @@ def extract_basic_feature_from_cycle(data_wav: pd.DataFrame):
     # Compute pulse pressure
     features['cycle_pulse_pressure'] = features['cycle_systol'] - features['cycle_diastol']
 
+    # compute the distance between consecutive cycles
+    # grouped = data_wav.groupby('cycle_id')
+    # cycle_data = pd.DataFrame({
+    #     "cycle_id": grouped.groups.keys(),
+    #     "cycle_values": [grouped.get_group(cid) for cid in grouped.groups.keys()]
+    # })
+    # # Shift cycle data to align consecutive cycles
+    # cycle_data["prev_cycle_values"] = cycle_data["cycle_values"].shift(1)
+
+    # cycle_data["cycle_distance"] = cycle_data.apply(
+    #     lambda row: compute_cycle_distance(row["prev_cycle_values"], row["cycle_values"])
+    #     if row["prev_cycle_values"] is not None and not row["prev_cycle_values"].empty else None,
+    #     axis=1
+    # )
+
+    # features_dist = cycle_data.dropna()[["cycle_id", "cycle_distance"]]
+
+    features.insert(len(features.columns), 'cycle_distance', np.nan)
+    cycle_ids = features.index
+    grouped = data_wav.groupby('cycle_id')
+    for i in range(len(cycle_ids) - 1):
+        cycle1 = grouped.get_group(cycle_ids[i])
+        cycle2 = grouped.get_group(cycle_ids[i + 1])
+        dist = compute_cycle_distance(cycle1, cycle2)
+        features.at[cycle_ids[i + 1], 'cycle_distance'] = dist
+
     return features.reset_index()
 
 
@@ -68,12 +124,14 @@ def validate_segment(feature_cycle: pd.DataFrame, dict_param: dict = None):
 
     if dict_param is None:
         dict_param = {
-            'min_heart_rate': 25,
-            'max_heart_rate': 230,
+            'min_heart_rate': 40,
+            'max_heart_rate': 150,
             'min_systol': 40,
             'max_systol': 250,
             'min_diastol': 20,
             'max_diastol': 200,
+            'min_mean_pressure': 30,
+            'max_mean_pressure': 200,
             'min_pulse_pressure': 10,
             'max_pulse_pressure': 150,
             'min_dPdt_max': 200,
@@ -88,11 +146,21 @@ def validate_segment(feature_cycle: pd.DataFrame, dict_param: dict = None):
         & (feature_cycle['cycle_systol'] < dict_param['max_systol'])
         & (feature_cycle['cycle_diastol'] > dict_param['min_diastol'])
         & (feature_cycle['cycle_diastol'] < dict_param['max_diastol'])
+        & (feature_cycle['cycle_mean'] > dict_param['min_mean_pressure'])
+        & (feature_cycle['cycle_mean'] < dict_param['max_mean_pressure'])
         & (feature_cycle['cycle_pulse_pressure'] > dict_param['min_pulse_pressure'])
         & (feature_cycle['cycle_pulse_pressure'] < dict_param['max_pulse_pressure'])
         & (feature_cycle['cycle_dPdt_max'] > dict_param['min_dPdt_max'])
         & (feature_cycle['cycle_dPdt_max'] < dict_param['max_dPdt_max'])
     ]
+    # for each case id remove values that are exceeding a rolling mean of 3 values
+    for caseid, case_cycle in feature_cycle.groupby('caseid'):
+        for feature in case_cycle.columns:
+            if feature not in ['caseid', 'Time', 'cycle_id']:
+                rolling_mean = case_cycle[feature].rolling(window=10, min_periods=1).mean()
+                case_cycle.mask(case_cycle[feature] > 1.2*rolling_mean, inplace=True)
+                case_cycle.mask(case_cycle[feature] < 1.2*rolling_mean, inplace=True)
+            case_cycle.dropna(inplace=True)
 
     return feature_cycle
 
