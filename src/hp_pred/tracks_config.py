@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from typing import TypedDict
 
-STATIC_DATA_NAMES = ["age", "bmi", "asa", "preop_cr", "preop_htn", "opname"]
+STATIC_DATA_NAMES = ["age", "bmi", "asa"]
 STATIC_NAME_TO_DTYPES = {
     "age": np.uint16,
     "bmi": np.float16,
