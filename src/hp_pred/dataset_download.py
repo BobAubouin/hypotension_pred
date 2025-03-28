@@ -16,24 +16,15 @@ from hp_pred.tracks_config import (
     TRACKS_CONFIG,
     SAMPLING_TIME,
     TrackConfig,
+    filter_case_ids,
 )
 
 TRACKS_META_URL = f"{VITAL_API_BASE_URL}/trks"
 CASE_INFO_URL = f"{VITAL_API_BASE_URL}/cases"
 
 # Filter constants
-TRACK_NAME_MBP = "Solar8000/ART_MBP"
-CASEEND_CASE_THRESHOLD = 3600  # seconds
-FORBIDDEN_OPNAME_CASE = "transplant"
 PERCENT_MISSING_DATA_THRESHOLD = 0.2
-AGE_CASE_THRESHOLD = 18  # years
-BLOOD_LOSS_THRESHOLD = 200  # mL
-BOLUS_THRESHOLD_EPH = 9  # mg
-BOLUS_THRESHOLD_PHE = 500  # mcg
-BOLUS_THRESHOLD_EPI = 100  # mcg
-BOLUS_THRESHOLD_MDZ = 3  # mg
-BOLUS_THRESHOLD_FTN = 50  # mcg
-BOLUS_THRESHOLD_PPF = 100  # mg
+
 
 PARQUET_SUBFOLDER_NAME = "cases"
 BASE_FILENAME_DATASET = "cases_data"
@@ -128,7 +119,7 @@ def get_track_names(tracks: list[TrackConfig] = TRACKS_CONFIG) -> list[str]:
     return track_names
 
 
-def filter_case_ids(cases: pd.DataFrame, tracks_meta: pd.DataFrame) -> list[int]:
+def get_case_ids(cases: pd.DataFrame, tracks_meta: pd.DataFrame) -> list[int]:
     """
     Filter the cases to download based on some criteria:
         - The case should have the MBP track
@@ -150,38 +141,7 @@ def filter_case_ids(cases: pd.DataFrame, tracks_meta: pd.DataFrame) -> list[int]
     """
     logger.debug("Filter case IDs: Start")
     logger.info(f"Filter case IDs: Number of cases to consider {len(cases.caseid)}")
-    # The cases should have the Mean Blood Pressure track.
-    cases_with_mbp = pd.merge(
-        tracks_meta.query(f"tname == '{TRACK_NAME_MBP}'"),
-        cases,
-        on="caseid",
-    )
-
-    # The cases should met these requirements
-    filtered_unique_case_ids = cases_with_mbp[
-        (cases_with_mbp.age > AGE_CASE_THRESHOLD)
-        & (cases_with_mbp.caseend > CASEEND_CASE_THRESHOLD)
-        & (~cases_with_mbp.opname.str.contains(FORBIDDEN_OPNAME_CASE, case=False))
-        & (~cases_with_mbp.optype.str.contains(FORBIDDEN_OPNAME_CASE, case=False))
-        & (cases_with_mbp.intraop_eph <= BOLUS_THRESHOLD_EPH)
-        & (cases_with_mbp.intraop_phe <= BOLUS_THRESHOLD_PHE)
-        & (cases_with_mbp.intraop_epi <= BOLUS_THRESHOLD_EPI)
-        & (cases_with_mbp.intraop_mdz <= BOLUS_THRESHOLD_MDZ)
-        & (cases_with_mbp.intraop_ftn <= BOLUS_THRESHOLD_FTN)
-        & (cases_with_mbp.intraop_ppf <= BOLUS_THRESHOLD_PPF)
-        & (cases_with_mbp.emop == 0)
-        & (
-            (cases_with_mbp.intraop_ebl < BLOOD_LOSS_THRESHOLD)
-            | (cases_with_mbp.intraop_ebl.isna())
-        )
-    ].caseid.unique()
-
-    # The cases should have the needed static data
-    potential_cases = cases[cases.caseid.isin(filtered_unique_case_ids)]
-    filtered_case_ids = potential_cases[
-        potential_cases[STATIC_DATA_NAMES + ["caseid"]].isna().sum("columns") == 0
-    ].caseid.tolist()
-
+    filtered_case_ids = filter_case_ids(cases, tracks_meta)
     n_kept_cases = len(filtered_case_ids)
     logger.info(f"Filter case IDs: Number of cases kept {n_kept_cases}")
     logger.debug("Filter case IDs: End")
@@ -351,7 +311,7 @@ def build_dataset(
         pd.DataFrame: Static data for each case
     """
     logger.debug("Build dataset: Start")
-    case_ids = filter_case_ids(cases, tracks_meta)
+    case_ids = get_case_ids(cases, tracks_meta)
 
     case_ids = case_ids  # for debugging
 
