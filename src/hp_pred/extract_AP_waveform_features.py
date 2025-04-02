@@ -46,13 +46,16 @@ def compute_cycle_distance(cycle_1, cycle_2):
     # ensure cycles are consecutives
     if np.abs(cycle_2['Time'].iloc[0] - cycle_1['Time'].iloc[-1]) > 0.5:
         return np.nan
-    cycle_1 = cycle_1['ap'].values
-    cycle_2 = cycle_2['ap'].values
+    cycle_1 = cycle_1['ap'].interpolate().values
+    cycle_2 = cycle_2['ap'].interpolate().values
+
     cycle_1_normalized = normalize_cycle(cycle_1)
     cycle_2_normalized = normalize_cycle(cycle_2)
 
     # Ensure both cycles have the same length (truncate to the minimum length)
     min_len = min(len(cycle_1_normalized), len(cycle_2_normalized))
+    if min_len == 0:
+        return np.nan
     cycle_1_normalized = cycle_1_normalized[:min_len]
     cycle_2_normalized = cycle_2_normalized[:min_len]
 
