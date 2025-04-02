@@ -8,25 +8,26 @@ from hp_pred.experiments import bootstrap_test, objective_xgboost
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
-SIGNAL_FEATURE = (['hr', 'rr', 'spo2', 'etco2', 'mac', 'pp_ct', 'rf_ct', 'body_temp']
-                   + ['mbp', 'dbp', 'sbp']
+SIGNAL_FEATURE = (['rr', 'spo2', 'etco2', 'mac', 'pp_ct', 'rf_ct', 'body_temp']
+                   + ['hr', 'mbp', 'dbp', 'sbp']
                 #  + ['cycle_mean', 'cycle_systol', 'cycle_diastol']
                 #  + ['cycle_std', 'cycle_pulse_pressure']
-                #   ['cycle_dPdt_max', 'cycle_dPdt_min', 'cycle_dPdt_mean', 'cycle_dPdt_std']
+                #  + ['cycle_dPdt_max', 'cycle_dPdt_min', 'cycle_dPdt_mean', 'cycle_dPdt_std']
+                #  + ['cycle_distance']
                 )
 STATIC_FEATURE = ["age", "bmi", "asa"]
 HALF_TIME_FILTERING = [60, 3*60, 10*60]
 
 
-dataset_folder = Path("data/datasets/30_s_dataset")
-model_filename = "xgb_not_filter.json"
+dataset_folder = Path("data/datasets/30_s_dataset_old")
+model_filename = "xgb_full_full.json"
 feature_type = "time"
 
 # import the data frame and add the meta data to the segments
-# dataset_folder_bis = Path("data/datasets/30_s_filtered_v2_dataset")
-# other_static = pd.read_parquet(dataset_folder_bis / 'meta.parquet')
+dataset_folder_bis = Path("data/datasets/30_s_dataset")
+other_static = pd.read_parquet(dataset_folder_bis / 'meta.parquet')
 
-data = pd.read_parquet(dataset_folder / 'cases/')
+data = pd.concat([pd.read_parquet(file) for file in (dataset_folder / 'cases/').glob('*.parquet')])
 
 if feature_type == "wave" or feature_type == "mixt":
     data_wave = pd.read_parquet(dataset_folder / "wave_rocket_features/")
@@ -38,7 +39,10 @@ static = pd.read_parquet(dataset_folder / 'meta.parquet')
 data = data.merge(static, on='caseid')
 # data = data[data['intervention']==0]
 
-train = data[data['split']=='train']
+
+other_caseid_test = other_static.query('split=="test"').caseid.unique()
+train = data[~data.caseid.isin(other_caseid_test)]
+
 test = data[data['split']=='test']
 
 
