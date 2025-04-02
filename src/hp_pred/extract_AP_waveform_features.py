@@ -1,9 +1,11 @@
 from pathlib import Path
+from functools import partial
 
 import pandas as pd
 import numpy as np
 from pyampd.ampd import find_peaks
 from tqdm import tqdm
+from tqdm.contrib.concurrent import process_map 
 
 SAMPLING_TIME = 0.04
 
@@ -46,8 +48,8 @@ def compute_cycle_distance(cycle_1, cycle_2):
     # ensure cycles are consecutives
     if np.abs(cycle_2['Time'].iloc[0] - cycle_1['Time'].iloc[-1]) > 0.5:
         return np.nan
-    cycle_1 = cycle_1['ap'].interpolate().values
-    cycle_2 = cycle_2['ap'].interpolate().values
+    cycle_1 = cycle_1['ap'].astype(float).interpolate().values
+    cycle_2 = cycle_2['ap'].astype(float).interpolate().values
 
     cycle_1_normalized = normalize_cycle(cycle_1)
     cycle_2_normalized = normalize_cycle(cycle_2)
@@ -95,22 +97,6 @@ def extract_basic_feature_from_cycle(data_wav: pd.DataFrame):
     features['cycle_pulse_pressure'] = features['cycle_systol'] - features['cycle_diastol']
 
     # compute the distance between consecutive cycles
-    # grouped = data_wav.groupby('cycle_id')
-    # cycle_data = pd.DataFrame({
-    #     "cycle_id": grouped.groups.keys(),
-    #     "cycle_values": [grouped.get_group(cid) for cid in grouped.groups.keys()]
-    # })
-    # # Shift cycle data to align consecutive cycles
-    # cycle_data["prev_cycle_values"] = cycle_data["cycle_values"].shift(1)
-
-    # cycle_data["cycle_distance"] = cycle_data.apply(
-    #     lambda row: compute_cycle_distance(row["prev_cycle_values"], row["cycle_values"])
-    #     if row["prev_cycle_values"] is not None and not row["prev_cycle_values"].empty else None,
-    #     axis=1
-    # )
-
-    # features_dist = cycle_data.dropna()[["cycle_id", "cycle_distance"]]
-
     features.insert(len(features.columns), 'cycle_distance', np.nan)
     cycle_ids = features.index
     grouped = data_wav.groupby('cycle_id')
@@ -167,37 +153,10 @@ def validate_segment(feature_cycle: pd.DataFrame, dict_param: dict = None):
 
     return feature_cycle
 
-
-def extract_AP_waveform_features(
-        output_dir: str = 'data/wav/cycle_features',
-        waveform_dir: str = 'data/wav/cases/',
-        group_size: int = 5,
-        dict_param_verif: dict = None):
-
-    # Load the waveform data
-    print('Reading waveform data')
-    file_list = list(Path(waveform_dir).glob('*.parquet'))
-
-    # do not process if file already in the output directory
-    file_list = [file for file in file_list if not (
-        Path(output_dir) / f'case_{int(file.stem.split("-")[1]):04d}.parquet').exists()]
-
-    if not Path(output_dir).exists():
-        Path(output_dir).mkdir(parents=True)
-
-    if len(file_list) == 0:
-        raise FileNotFoundError('No waveform data found in the directory')
-
-    # Read the first file to get the column names
-    iter_number = len(file_list) // group_size + (1 if len(file_list) % group_size > 0 else 0)
-
-    for i in tqdm(range(iter_number)):
-        if i == iter_number - 1:
-            file_group = file_list[i * group_size:]
-        else:
-            file_group = file_list[i * group_size: (i + 1) * group_size]
-
-        data_wav = pd.concat([pd.read_parquet(file, engine='pyarrow') for file in file_group])
+def process_one_case(filename: str,
+                     output_dir: str,
+                     dict_param_verif: dict):
+        data_wav = pd.read_parquet(filename, engine='pyarrow')
 
         data_wav.rename(columns={'SNUADC/ART': 'ap'}, inplace=True)
 
@@ -218,6 +177,31 @@ def extract_AP_waveform_features(
         for _, feature in feature_cycle.groupby('caseid'):
             feature.to_parquet(Path(output_dir) / f'case_{feature["caseid"].iloc[0]:04d}.parquet',
                                engine='pyarrow')
+
+
+def extract_AP_waveform_features(
+        output_dir: str = 'data/wav/cycle_features',
+        waveform_dir: str = 'data/wav/cases/',
+        group_size: int = 1,
+        dict_param_verif: dict = None):
+
+    # Load the waveform data
+    print('Reading waveform data')
+    file_list = list(Path(waveform_dir).glob('*.parquet'))
+
+    # do not process if file already in the output directory
+    file_list = [file for file in file_list if not (
+        Path(output_dir) / f'case_{int(file.stem.split("-")[1]):04d}.parquet').exists()]
+
+    if not Path(output_dir).exists():
+        Path(output_dir).mkdir(parents=True)
+
+    if len(file_list) == 0:
+        raise FileNotFoundError('No waveform data found in the directory')
+
+    process_one_case_partial = partial(process_one_case, output_dir=output_dir, dict_param_verif=dict_param_verif)
+
+    process_map(process_one_case_partial, file_list, chunksize = 1)
     print('Features extraction completed')
     return
 
