@@ -5,7 +5,6 @@ from itertools import chain, repeat
 import pandas as pd
 import numpy as np
 import xgboost as xgb
-from aeon.classification.deep_learning import IndividualLITEClassifier
 from sklearn.ensemble import VotingClassifier
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
@@ -101,15 +100,7 @@ class TestModel():
         self.model = []
         for filename in model_filenames:
             if filename.endswith(".keras"):
-                lite_list = []
-                for i in range(3):
-                    lite = IndividualLITEClassifier()
-                    lite.load_model(model_path=Path("data/models") / (filename[:-6]+str(i)+'.keras'),
-                                    classes=[0, 1],
-                                    )
-                    lite_list.append(lite)
-                model = VotingClassifier(lite_list, voting='soft')
-                self.model += [model]
+                print('model not supported yet')
             elif filename.endswith(".json"):
                 self.model += [xgb.XGBClassifier()]
                 model_path = Path("data/models") / filename
@@ -123,7 +114,7 @@ class TestModel():
         self.output_name = output_name
         self.result_folder = Path("data/results")
         if not self.result_folder.exists():
-            self.result_folder.exists()
+            self.result_folder.mkdir()
         self.baseline_result_file = self.result_folder / f"baseline_{self.output_name}.pkl"
 
         self.model_result_file = []
@@ -297,8 +288,7 @@ class TestModel():
             plt.fill_between(
                 recall, precision_mean - 2 * precision_std, precision_mean + 2 * precision_std, alpha=0.2
             )
-            plt.plot(recall, precision_mean, label=f"{self.plot_name[i]} (AUPRC = {
-                     expe.print_one_stat(pd.Series(dict_results_model['au_op_prcs']), False)})")
+            plt.plot(recall, precision_mean, label=f"{self.plot_name[i]} (AUPRC = {expe.print_one_stat(pd.Series(dict_results_model['au_op_prcs']), False)})")
 
         # add baseline to the plot
 
@@ -337,8 +327,7 @@ class TestModel():
             plt.fill_between(
                 fpr, tpr_mean - 2 * tpr_std, tpr_mean + 2 * tpr_std, alpha=0.2
             )
-            plt.plot(fpr, tpr_mean, label=f"{self.plot_name[i]} (AUROC = {
-                     expe.print_one_stat(pd.Series(dict_results_model['aucs']), False)})")
+            plt.plot(fpr, tpr_mean, label=f"{self.plot_name[i]} (AUROC = {expe.print_one_stat(pd.Series(dict_results_model['aucs']), False)})")
 
         # add baseline to the plot
         plt.fill_between(
@@ -376,8 +365,7 @@ class TestModel():
             plt.fill_between(
                 recall, precision_mean - 2 * precision_std, precision_mean + 2 * precision_std, alpha=0.2
             )
-            plt.plot(recall, precision_mean, label=f"{self.plot_name[i]} (AUPRC = {
-                     expe.print_one_stat(pd.Series(dict_results_model['auprcs']), False)})")
+            plt.plot(recall, precision_mean, label=f"{self.plot_name[i]} (AUPRC = {expe.print_one_stat(pd.Series(dict_results_model['auprcs']), False)})")
 
         # add baseline to the plot
 
