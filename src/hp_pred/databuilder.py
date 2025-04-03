@@ -390,11 +390,11 @@ class DataBuilder:
         slowThr = 8
         # detect a sudden increase in the mean arterial pressure
         for id in range(0, len(segment)-2):
-            if segment.mbp.iloc[id+1]-segment.mbp.iloc[id] > fastThr and segment.mbp.iloc[id] < 75.5 and segment.mbp.iloc[id+2]-segment.mbp.iloc[id+1] > -1:
+            if segment[self.mbp_column].iloc[id+1]-segment[self.mbp_column].iloc[id] > fastThr and segment[self.mbp_column].iloc[id] < 75.5 and segment[self.mbp_column].iloc[id+2]-segment[self.mbp_column].iloc[id+1] > -1:
                 return True
         # detect a slower decrease in the mean arterial pressure
         for id in range(0, len(segment)-4):
-            if segment.mbp.iloc[id:id+4].max()-segment.mbp.iloc[id] > slowThr and segment.mbp.iloc[id] < 75.5:
+            if segment[self.mbp_column].iloc[id:id+4].max()-segment[self.mbp_column].iloc[id] > slowThr and segment[self.mbp_column].iloc[id] < 75.5:
                 return True
 
         return False
