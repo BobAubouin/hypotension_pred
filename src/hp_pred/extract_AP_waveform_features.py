@@ -3,9 +3,10 @@ from functools import partial
 
 import pandas as pd
 import numpy as np
+from scipy.interpolate import interp1d
 from pyampd.ampd import find_peaks
 from tqdm import tqdm
-from tqdm.contrib.concurrent import process_map 
+from tqdm.contrib.concurrent import process_map
 
 SAMPLING_TIME = 0.04
 
@@ -33,37 +34,28 @@ def segment_cardiac_cycle(data_wav: pd.DataFrame):
     return data_wav
 
 
-def normalize_cycle(cycle):
-    cycle_min = np.min(cycle)
-    cycle_max = np.max(cycle)
-    amplitude = cycle_max - cycle_min
-    if amplitude == 0:  # Avoid division by zero
-        return cycle - cycle_min  # If amplitude is 0, return all zeros
-    return (cycle - cycle_min) / amplitude  # Normalize to [0, 1]
+def mizoFeatures(y, nt=100, nh=8):
 
+    plh1 = [0] * 8
+    plh2 = [0] * 8
+    n = len(y)
+    t = np.linspace(0, 1, n)
+    tn = np.linspace(0, 1, nt)
+    sp = interp1d(t, y, kind='cubic')
+    yint = sp(tn)
+    v = np.diff(np.sign(np.diff(yint)))
+    n_stat = int(np.sum(abs(v) > 0))
+    m1 = min(n_stat, nh)
+    plh1[0:m1] = np.where(abs(v) > 0)[0][0:m1]/100
+    plh2[0:m1] = yint[np.where(abs(v) > 0)[0]][0:m1]
+    features = [
+        n_stat,
+        *plh1,
+        *plh2
+    ]
+    features = {f"mizo_{i}":  float(v) for i, v in enumerate(features)}
 
-def compute_cycle_distance(cycle_1, cycle_2):
-    """Computes the Euclidean distance between two cycles."""
-
-    # ensure cycles are consecutives
-    if np.abs(cycle_2['Time'].iloc[0] - cycle_1['Time'].iloc[-1]) > 0.5:
-        return np.nan
-    cycle_1 = cycle_1['ap'].astype(float).interpolate().values
-    cycle_2 = cycle_2['ap'].astype(float).interpolate().values
-
-    cycle_1_normalized = normalize_cycle(cycle_1)
-    cycle_2_normalized = normalize_cycle(cycle_2)
-
-    # Ensure both cycles have the same length (truncate to the minimum length)
-    min_len = min(len(cycle_1_normalized), len(cycle_2_normalized))
-    if min_len == 0:
-        return np.nan
-    cycle_1_normalized = cycle_1_normalized[:min_len]
-    cycle_2_normalized = cycle_2_normalized[:min_len]
-
-    # Compute Euclidean distance
-    distance = np.linalg.norm(cycle_1_normalized - cycle_2_normalized)
-    return distance
+    return features
 
 
 def extract_basic_feature_from_cycle(data_wav: pd.DataFrame):
@@ -97,16 +89,11 @@ def extract_basic_feature_from_cycle(data_wav: pd.DataFrame):
     features['cycle_pulse_pressure'] = features['cycle_systol'] - features['cycle_diastol']
 
     # compute the distance between consecutive cycles
-    features.insert(len(features.columns), 'cycle_distance', np.nan)
-    cycle_ids = features.index
-    grouped = data_wav.groupby('cycle_id')
-    for i in range(len(cycle_ids) - 1):
-        cycle1 = grouped.get_group(cycle_ids[i])
-        cycle2 = grouped.get_group(cycle_ids[i + 1])
-        dist = compute_cycle_distance(cycle1, cycle2)
-        features.at[cycle_ids[i + 1], 'cycle_distance'] = dist
+    mizo_features_df = data_wav.groupby('cycle_id').apply(lambda x: mizoFeatures(x['ap'].interpolate(method='linear')))
 
-    return features.reset_index()
+    combined_features = pd.concat([features, mizo_features_df], axis=1)
+
+    return combined_features.reset_index()
 
 
 def validate_segment(feature_cycle: pd.DataFrame, dict_param: dict = None):
@@ -153,30 +140,31 @@ def validate_segment(feature_cycle: pd.DataFrame, dict_param: dict = None):
 
     return feature_cycle
 
+
 def process_one_case(filename: str,
                      output_dir: str,
                      dict_param_verif: dict):
-        data_wav = pd.read_parquet(filename, engine='pyarrow')
+    data_wav = pd.read_parquet(filename, engine='pyarrow')
 
-        data_wav.rename(columns={'SNUADC/ART': 'ap'}, inplace=True)
+    data_wav.rename(columns={'SNUADC/ART': 'ap'}, inplace=True)
 
-        # resample_data
-        data_wav['Time'] = (
-            data_wav.groupby('caseid', group_keys=False, sort=False)['Time']
-            .transform(lambda x: x.interpolate(method='linear'))
-            .round(4)
-        )
-        init_sampling = data_wav['Time'].iloc[1] - data_wav['Time'].iloc[0]
-        data_wav = data_wav.iloc[::int(SAMPLING_TIME / init_sampling)]
+    # resample_data
+    data_wav['Time'] = (
+        data_wav.groupby('caseid', group_keys=False, sort=False)['Time']
+        .transform(lambda x: x.interpolate(method='linear'))
+        .round(4)
+    )
+    init_sampling = data_wav['Time'].iloc[1] - data_wav['Time'].iloc[0]
+    data_wav = data_wav.iloc[::int(SAMPLING_TIME / init_sampling)]
 
-        data_wav = segment_cardiac_cycle(data_wav)
-        feature_cycle = extract_basic_feature_from_cycle(data_wav)
-        feature_cycle = validate_segment(feature_cycle, dict_param_verif)
+    data_wav = segment_cardiac_cycle(data_wav)
+    feature_cycle = extract_basic_feature_from_cycle(data_wav)
+    feature_cycle = validate_segment(feature_cycle, dict_param_verif)
 
-        # Save the extracted features
-        for _, feature in feature_cycle.groupby('caseid'):
-            feature.to_parquet(Path(output_dir) / f'case_{feature["caseid"].iloc[0]:04d}.parquet',
-                               engine='pyarrow')
+    # Save the extracted features
+    for _, feature in feature_cycle.groupby('caseid'):
+        feature.to_parquet(Path(output_dir) / f'case_{feature["caseid"].iloc[0]:04d}.parquet',
+                           engine='pyarrow')
 
 
 def extract_AP_waveform_features(
@@ -201,7 +189,7 @@ def extract_AP_waveform_features(
 
     process_one_case_partial = partial(process_one_case, output_dir=output_dir, dict_param_verif=dict_param_verif)
 
-    process_map(process_one_case_partial, file_list, chunksize = 1)
+    process_map(process_one_case_partial, file_list, chunksize=1)
     print('Features extraction completed')
     return
 
@@ -235,6 +223,9 @@ def merge_signal_feature_cycle(
     data_signal = pd.read_parquet(data_signal_dir, engine='pyarrow')
     data_feature = pd.read_parquet(data_feature_dir, engine='pyarrow')
 
+    # keep only the intersection of the caseid
+    data_signal = data_signal.query('caseid.isin(@data_feature.caseid.unique())')
+
     # resample data_feature at the same time as data_signal for each caseid and merge
     data_signal = data_signal.sort_values(by=['caseid', 'Time'])
     data_feature = data_feature.sort_values(by=['caseid', 'Time'])
@@ -254,5 +245,5 @@ def merge_signal_feature_cycle(
 
 if __name__ == '__main__':
     # print curent working directory
-    extract_AP_waveform_features()
+    # extract_AP_waveform_features()
     merge_signal_feature_cycle()
