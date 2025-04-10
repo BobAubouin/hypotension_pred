@@ -34,8 +34,8 @@ def segment_cardiac_cycle(data_wav: pd.DataFrame):
     return data_wav
 
 
-def mizoFeatures(y, nt=100, nh=8):
-
+def mizoFeatures(df_cycle, nt=100, nh=8):
+    y = df_cycle['ap'].interpolate(method='linear')
     plh1 = [0] * 8
     plh2 = [0] * 8
     n = len(y)
@@ -89,7 +89,7 @@ def extract_basic_feature_from_cycle(data_wav: pd.DataFrame):
     features['cycle_pulse_pressure'] = features['cycle_systol'] - features['cycle_diastol']
 
     # compute the distance between consecutive cycles
-    mizo_features_df = data_wav.groupby('cycle_id').apply(lambda x: mizoFeatures(x['ap'].interpolate(method='linear')))
+    mizo_features_df = data_wav.groupby('cycle_id').apply(mizoFeatures)
 
     combined_features = pd.concat([features, mizo_features_df], axis=1)
 
@@ -245,5 +245,5 @@ def merge_signal_feature_cycle(
 
 if __name__ == '__main__':
     # print curent working directory
-    # extract_AP_waveform_features()
+    extract_AP_waveform_features()
     merge_signal_feature_cycle()
