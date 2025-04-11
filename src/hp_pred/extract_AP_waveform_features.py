@@ -54,8 +54,9 @@ def mizoFeatures(df_cycle, nt=100, nh=8):
         *plh2
     ]
     features = {f"mizo_{i}":  float(v) for i, v in enumerate(features)}
+    feature_df = pd.DataFrame(features, index=[df_cycle['cycle_id'].iloc[0]])
 
-    return features
+    return feature_df
 
 
 def extract_basic_feature_from_cycle(data_wav: pd.DataFrame):
@@ -89,9 +90,8 @@ def extract_basic_feature_from_cycle(data_wav: pd.DataFrame):
     features['cycle_pulse_pressure'] = features['cycle_systol'] - features['cycle_diastol']
 
     # compute the distance between consecutive cycles
-    mizo_features_df = data_wav.groupby('cycle_id').apply(mizoFeatures)
-
-    combined_features = pd.concat([features, mizo_features_df], axis=1)
+    mizo_features_df = data_wav.groupby('cycle_id').apply(mizoFeatures, include_groups=False)
+    combined_features = pd.merge(right=features, left=mizo_features_df, on='cycle_id', how='right')
 
     return combined_features.reset_index()
 
@@ -245,5 +245,5 @@ def merge_signal_feature_cycle(
 
 if __name__ == '__main__':
     # print curent working directory
-    extract_AP_waveform_features()
+    # extract_AP_waveform_features()
     merge_signal_feature_cycle()
