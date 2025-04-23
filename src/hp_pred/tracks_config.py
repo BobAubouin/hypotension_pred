@@ -6,10 +6,10 @@ STATIC_DATA_NAMES = ["age", "bmi", "asa"]
 STATIC_NAME_TO_DTYPES = {
     "age": np.uint16,
     "bmi": np.float16,
-    "preop_cr": np.float32,
+    # "preop_cr": np.float32,
     "asa": np.uint16,
-    "preop_htn": np.uint16,
-    "opname": "category",
+    # "preop_htn": np.uint16,
+    # "opname": "category",
 }
 
 SAMPLING_TIME = 2
