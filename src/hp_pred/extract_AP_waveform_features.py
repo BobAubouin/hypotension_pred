@@ -177,12 +177,14 @@ def extract_AP_waveform_features(
     print('Reading waveform data')
     file_list = list(Path(waveform_dir).glob('*.parquet'))
 
+    if not Path(output_dir).exists():
+        Path(output_dir).mkdir(parents=True)
+        
     # do not process if file already in the output directory
     file_list = [file for file in file_list if not (
         Path(output_dir) / f'case_{int(file.stem.split("-")[1]):04d}.parquet').exists()]
 
-    if not Path(output_dir).exists():
-        Path(output_dir).mkdir(parents=True)
+
 
     if len(file_list) == 0:
         raise FileNotFoundError('No waveform data found in the directory')
