@@ -64,4 +64,4 @@ Note that the results associated with data from Grenoble Hospital can not be rep
 
 ## Citation
 
-If you use this code in your research, please cite our paper.
+If you use this code in your research, please cite our [paper](https://ieeexplore.ieee.org/document/11049860).
