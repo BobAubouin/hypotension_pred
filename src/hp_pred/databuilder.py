@@ -365,16 +365,16 @@ class DataBuilder:
                 continue
             if hypo and drug in VASSOPRESSOR_DRUGS:
                 if segment[drug].iloc[0] - segment[drug].min() > 0:
-                    return True
+                    return 'inter_decrease'
             elif hypo and drug not in VASSOPRESSOR_DRUGS:
                 if segment[drug].iloc[0] - segment[drug].max() < 0:
-                    return True
+                    return 'inter_decrease'
             elif not hypo and drug in VASSOPRESSOR_DRUGS:
                 if segment[drug].iloc[0] - segment[drug].max() < 0:
-                    return True
+                    return 'inter_increase'
             elif not hypo and drug not in VASSOPRESSOR_DRUGS:
                 if segment[drug].iloc[0] - segment[drug].min() > 0:
-                    return True
+                    return 'inter_increase'
         return False
 
     def detect_intervention_map(self, segment: pd.DataFrame) -> bool:
