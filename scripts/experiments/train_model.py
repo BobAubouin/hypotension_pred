@@ -4,23 +4,24 @@ import optuna
 import pandas as pd
 import xgboost as xgb
 
-from hp_pred.experiments import bootstrap_test, objective_xgboost
+from hp_pred.experiments import objective_xgboost
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
-SIGNAL_FEATURE = (['rr', 'spo2', 'etco2', 'mac', 'pp_ct', 'rf_ct', 'body_temp']
-                   + ['hr', 'mbp', 'dbp', 'sbp']
-                #  + ['cycle_mean', 'cycle_systol', 'cycle_diastol']
-                #  + ['cycle_std', 'cycle_pulse_pressure']
-                #  + ['cycle_dPdt_max', 'cycle_dPdt_min', 'cycle_dPdt_mean', 'cycle_dPdt_std']
-                #  + ['cycle_distance']
-                )
-STATIC_FEATURE = ["age", "bmi", "asa"]
+SIGNAL_FEATURE = (['mbp']
+                  # ['rr', 'spo2', 'etco2', 'mac', 'pp_ct', 'rf_ct', 'body_temp']
+                  # + ['hr', 'mbp', 'dbp', 'sbp']
+                  #  + ['cycle_mean', 'cycle_systol', 'cycle_diastol']
+                  #  + ['cycle_std', 'cycle_pulse_pressure']
+                  #  + ['cycle_dPdt_max', 'cycle_dPdt_min', 'cycle_dPdt_mean', 'cycle_dPdt_std']
+                  #  + ['cycle_distance']
+                  )
+STATIC_FEATURE = []  # ["age", "bmi", "asa"]
 HALF_TIME_FILTERING = [60, 3*60, 10*60]
 
 
-dataset_folder = Path("data/datasets/30_s_dataset_old")
-model_filename = "xgb_full_full.json"
+dataset_folder = Path("data/datasets/30_s_dataset")
+model_filename = "xgb_map.json"
 feature_type = "time"
 
 # import the data frame and add the meta data to the segments
@@ -37,13 +38,14 @@ if feature_type == "wave" or feature_type == "mixt":
 static = pd.read_parquet(dataset_folder / 'meta.parquet')
 
 data = data.merge(static, on='caseid')
-# data = data[data['intervention']==0]
+data = data.query('intervention==0')
+data = data.query('(ioh_at_time_t == 0) & (ioh_in_leading_time == 0)')
 
 
 other_caseid_test = other_static.query('split=="test"').caseid.unique()
 train = data[~data.caseid.isin(other_caseid_test)]
 
-test = data[data['split']=='test']
+test = data[data['split'] == 'test']
 
 
 # control reproducibility

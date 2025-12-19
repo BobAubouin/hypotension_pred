@@ -568,12 +568,16 @@ def print_one_stat(series: pd.Series, percent: bool = False) -> bool:
         if percent:
             return f"{series.mean():.1%} ({series.std():.1%})"
         else:
-            return f"{series.mean():.2f} ({series.std():.2f})"
+            return f"{series.mean():.2e} ({series.std():.2e})"
     else:
         if percent:
             return f"{series.median():.1%} [{series.quantile(0.25):.1%}, {series.quantile(0.75):.1%}]"
         else:
             return f"{series.median():.2f} [{series.quantile(0.25):.2f}, {series.quantile(0.75):.2f}]"
+
+
+def print_metric(series: pd.Series):
+    return f"{series.mean():.2f} (95% CI, {series.quantile(0.025):.2f} to {series.quantile(0.975):.2f})"
 
 
 def print_statistics(dict: Dict[str, pd.DataFrame]) -> None:
@@ -586,15 +590,15 @@ def print_statistics(dict: Dict[str, pd.DataFrame]) -> None:
     for key in ["aucs", "aps", "auprcs", "threshold_opt", "recall_threshold", "specificity", "npvs", "f1", "au_op_prcs", "op_precision_threshold"]:
         df[key] = dict[key]
     print('----- General stats -----')
-    print(f"AUCROC: {print_one_stat(df.aucs, False)}")
-    print(f"AUPRC: {print_one_stat(df.auprcs, False)}")
-    print(f"Operational AUPRC: {print_one_stat(df.au_op_prcs, False)}")
+    print(f"AUCROC: {print_metric(df.aucs)}")
+    print(f"AUPRC: {print_metric(df.auprcs)}")
+    print(f"Operational AUPRC: {print_metric(df.au_op_prcs)}")
 
     print('----- At threshold stats -----')
-    print(f"Threshold: {print_one_stat(df.threshold_opt, False)}")
-    print(f"Operational Recall: {print_one_stat(df.recall_threshold, True)}")
-    print(f"Operational Precision: {print_one_stat(df.op_precision_threshold, True)}")
-    print(f"Operational Specificity: {print_one_stat(df.specificity, True)}")
-    print(f"Operational NPV: {print_one_stat(df.npvs, True)}")
-    print(f"Operational F1-score: {print_one_stat(df.f1, True)}")
+    print(f"Threshold: {print_metric(df.threshold_opt)}")
+    print(f"Operational Recall: {print_metric(df.recall_threshold)}")
+    print(f"Operational Precision: {print_metric(df.op_precision_threshold)}")
+    print(f"Operational Specificity: {print_metric(df.specificity)}")
+    print(f"Operational NPV: {print_metric(df.npvs)}")
+    print(f"Operational F1-score: {print_metric(df.f1)}")
     return

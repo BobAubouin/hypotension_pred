@@ -5,7 +5,7 @@ from itertools import chain, repeat
 import pandas as pd
 import numpy as np
 import xgboost as xgb
-from sklearn.ensemble import VotingClassifier
+import statsmodels.api as sm
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import shap
@@ -17,6 +17,23 @@ import hp_pred.experiments as expe
 
 BASELINE_FEATURE = "last_map_value"
 BASIC_COLORS = list(mcolors.TABLEAU_COLORS.values())
+
+
+def compute_ICI(y_true, y_pred):
+    num_samples = min(1000, len(y_pred))  # Adjust based on dataset size
+    sample_indices = np.linspace(0, len(y_pred) - 1, num_samples, dtype=int)
+
+    y_pred = y_pred[sample_indices]
+    y_true = y_true[sample_indices]
+
+    loess_model = sm.nonparametric.lowess(y_true, y_pred, frac=0.3)  # frac is the smoothing parameter
+
+    # Extract smoothed values
+    P_calibrate = np.interp(y_pred, loess_model[:, 0], loess_model[:, 1])
+
+    # Calculate calibration metrics
+    ICI = np.mean(np.abs(P_calibrate - y_pred))
+    return ICI
 
 
 def _revert_dict(d):
@@ -120,23 +137,25 @@ class TestModel():
         self.model_result_file = []
         for model_name in model_filenames:
             self.model_result_file.append(self.result_folder / f"{model_name[:-5]}_{self.output_name}.pkl")
+        print(self.model_result_file)
 
         self.n_bootstraps = n_bootstraps
         self.rng_seed = 42  # control reproducibility
 
         # get the features names from the model
-        self.features_names = self.model[0].get_booster().feature_names
+        if len(self.model) > 1:
+            self.features_names = self.model[0].get_booster().feature_names
 
-        # ensure that the features names are in the column of the test data
-        if not set(self.features_names).issubset(self.test_data.columns):
-            raise ValueError("The features names in the model are not in the test data")
+            # ensure that the features names are in the column of the test data
+            if not set(self.features_names).issubset(self.test_data.columns):
+                raise ValueError("The features names in the model are not in the test data")
 
-        self.test_data.dropna(subset=self.features_names, inplace=True)
+            self.test_data.dropna(subset=self.features_names, inplace=True)
+            self.train_data.dropna(subset=self.features_names, inplace=True)
+
         self.test_data.dropna(subset=[BASELINE_FEATURE], inplace=True)
-        self.y_test = self.test_data["label"].to_numpy()
-
-        self.train_data.dropna(subset=self.features_names, inplace=True)
         self.train_data.dropna(subset=[BASELINE_FEATURE], inplace=True)
+        self.y_test = self.test_data["label"].to_numpy()
         self.y_train = self.train_data["label"].to_numpy()
 
         print(f"Number of points in the test data: {len(self.test_data)}")
@@ -185,6 +204,7 @@ class TestModel():
         self.y_pred_model = []
         self.dict_results_model = []
         for i, model in enumerate(self.model):
+            self.features_names = model.get_booster().feature_names
             self.y_pred_model.append(model.predict_proba(self.test_data[self.features_names])[:, 1])
             y_label_ids = self.test_data["label_id"].to_numpy()
 
@@ -220,6 +240,7 @@ class TestModel():
         for i, model in enumerate(self.model):
             with self.model_result_file[i].open("rb") as f:
                 self.dict_results_model.append(pickle.load(f))
+            self.features_names = model.get_booster().feature_names
             self.y_pred_model.append(self.model[i].predict_proba(self.test_data[self.features_names])[:, 1])
 
     def print_results(self):
@@ -288,7 +309,8 @@ class TestModel():
             plt.fill_between(
                 recall, precision_mean - 2 * precision_std, precision_mean + 2 * precision_std, alpha=0.2
             )
-            plt.plot(recall, precision_mean, label=f"{self.plot_name[i]} (AUPRC = {expe.print_one_stat(pd.Series(dict_results_model['au_op_prcs']), False)})")
+            plt.plot(recall, precision_mean,
+                     label=f"{self.plot_name[i]}, AUPRC = {expe.print_metric(pd.Series(dict_results_model['au_op_prcs']))}")
 
         # add baseline to the plot
 
@@ -301,7 +323,7 @@ class TestModel():
         plt.plot(
             self.dict_results_baseline['fprs'],
             self.dict_results_baseline['op_precision'].mean(0),
-            label=f"baseline (AUPRC = {expe.print_one_stat(pd.Series(self.dict_results_baseline['au_op_prcs']), False)})",
+            label=f"baseline, AUPRC = {expe.print_metric(pd.Series(self.dict_results_baseline['au_op_prcs']))}",
         )
 
         plt.plot([0, 1], [self.dict_results_baseline['op_precision'].mean(0)[-1]]*2, "k--")
@@ -327,7 +349,8 @@ class TestModel():
             plt.fill_between(
                 fpr, tpr_mean - 2 * tpr_std, tpr_mean + 2 * tpr_std, alpha=0.2
             )
-            plt.plot(fpr, tpr_mean, label=f"{self.plot_name[i]} (AUROC = {expe.print_one_stat(pd.Series(dict_results_model['aucs']), False)})")
+            plt.plot(
+                fpr, tpr_mean, label=f"{self.plot_name[i]}, AUROC = {expe.print_metric(pd.Series(dict_results_model['aucs']))}")
 
         # add baseline to the plot
         plt.fill_between(
@@ -339,7 +362,7 @@ class TestModel():
         plt.plot(
             self.dict_results_baseline['fprs'],
             self.dict_results_baseline['tpr'].mean(0),
-            label=f"baseline (AUROC = {expe.print_one_stat(pd.Series(self.dict_results_baseline['aucs']), False)})",
+            label=f"baseline, AUROC = {expe.print_metric(pd.Series(self.dict_results_baseline['aucs']))}",
         )
 
         plt.grid()
@@ -365,7 +388,8 @@ class TestModel():
             plt.fill_between(
                 recall, precision_mean - 2 * precision_std, precision_mean + 2 * precision_std, alpha=0.2
             )
-            plt.plot(recall, precision_mean, label=f"{self.plot_name[i]} (AUPRC = {expe.print_one_stat(pd.Series(dict_results_model['auprcs']), False)})")
+            plt.plot(recall, precision_mean,
+                     label=f"{self.plot_name[i]}, AUPRC = {expe.print_metric(pd.Series(dict_results_model['auprcs']))}")
 
         # add baseline to the plot
 
@@ -378,7 +402,7 @@ class TestModel():
         plt.plot(
             self.dict_results_baseline['fprs'],
             self.dict_results_baseline['precision'].mean(0),
-            label=f"baseline (AUPRC = {expe.print_one_stat(pd.Series(self.dict_results_baseline['au_op_prcs']), False)})",
+            label=f"baseline, AUPRC = {expe.print_metric(pd.Series(self.dict_results_baseline['auprcs']))}",
         )
 
         plt.plot([0, 1], [self.dict_results_baseline['precision'].mean(0)[-1]]*2, "k--")
@@ -412,7 +436,7 @@ class TestModel():
 
         # Compute ECE
         # ece_baseline = expected_calibration_error(self.y_pred_baseline, self.y_test, M=n_bins)
-        brier_baseline = brier_score_loss(self.y_test, self.y_pred_baseline)
+        ici_baseline = compute_ICI(self.y_test, self.y_pred_baseline)
 
         plt.plot([0, 1], [0, 1], linestyle='--', color='black', label='perfectly calibrated')
         for i, y_pred in enumerate(self.y_pred_model):
@@ -424,7 +448,7 @@ class TestModel():
             )
             # Compute ECE
             # ece_model = expected_calibration_error(y_pred, self.y_test, M=n_bins)
-            brier_model = brier_score_loss(self.y_test, y_pred)
+            ici_model = compute_ICI(self.y_test, y_pred)
             bin_edges = np.linspace(0, 1, n_bins + 1)
             bin_counts = np.histogram(y_pred, bins=bin_edges)[0]  # Count of samples per bin
             bin_counts = bin_counts[bin_counts > 0]
@@ -434,12 +458,12 @@ class TestModel():
             marker_sizes = np.interp(bin_counts, (bin_counts.min(), bin_counts.max()), (min_size, max_size))
 
             plt.plot(mean_predicted_value_model, fraction_of_positives_model,
-                     label=f'{self.plot_name[i]} (brier={brier_model:.3f})', color=BASIC_COLORS[i], linewidth=0.5)
+                     label=f'{self.plot_name[i]} (ICI={ici_model:.3f})', color=BASIC_COLORS[i], linewidth=0.5)
             plt.scatter(mean_predicted_value_model, fraction_of_positives_model,
                         s=marker_sizes, color=BASIC_COLORS[i], alpha=0.5)
 
         plt.plot(mean_predicted_value_baseline, fraction_of_positives_baseline,
-                 label=f'baseline (brier={brier_baseline:.3f})', linewidth=0.5, color=BASIC_COLORS[i+1])
+                 label=f'baseline (ICI={ici_baseline:.3f})', linewidth=0.5, color=BASIC_COLORS[i+1])
         plt.scatter(mean_predicted_value_baseline, fraction_of_positives_baseline,
                     s=marker_sizes_base, color=BASIC_COLORS[i+1], alpha=0.5)
         plt.xlabel('Predicted probability')
@@ -485,45 +509,86 @@ class TestModel():
         self.plot_roc_curve()
         self.plot_pr_curve()
 
-    def compute_shap_value(self, model_id=0):
+    def compute_shap_value(self):
         # use SHAP to explain the model
+        self.shap_values = []
         shap.initjs()
-        explainer = shap.TreeExplainer(self.model[model_id])
-        self.shap_values = explainer.shap_values(self.test_data[self.features_names])
+        for model_id in range(len(self.model)):
+            self.features_names = self.model[model_id].get_booster().feature_names
+            explainer = shap.TreeExplainer(self.model[model_id])
+            explanation = explainer(self.test_data[self.features_names])
+            explanation.values /= np.sum(np.abs(explanation.values))  # normalize SHAP values
+            self.shap_values.append(explanation)
 
     def plot_shap_values(self,
                          nb_max_feature=10,
                          ):
         # plot the SHAP value
-        test_data = self.test_data[self.features_names]
-        plt.figure(figsize=(12, 5))
-        plt.subplot(1, 2, 1)
-        for i in range(nb_max_feature):
-            plt.axhline(y=i, color='black', linestyle='--', linewidth=0.5)
-        shap.summary_plot(self.shap_values, test_data, feature_names=self.features_names,
-                          show=False, plot_type="bar", max_display=nb_max_feature)
-        plt.xlabel('mean($|$SHAP value$|$)')
-        names = plt.gca().get_yticklabels()
-        names = [name.get_text().replace("constant", "intercept") for name in names]
-        names = [name.replace("mbp", "MAP") for name in names]
-        names = [name.replace("sbp", "SAP") for name in names]
-        names = [name.replace("dbp", "DAP") for name in names]
-        names = [name.replace("hr", "HR") for name in names]
-        names = [name.replace("rf_ct", "RF_CT") for name in names]
-        plt.gca().set_yticklabels(names)
-        plt.subplot(1, 2, 2)
-        shap.summary_plot(self.shap_values, test_data, feature_names=self.features_names,
-                          show=False, max_display=nb_max_feature)
-        # remove the y thick label
-        plt.gca().set_yticklabels([])
-        plt.xlabel('SHAP value')
-        plt.tight_layout()
-        # add horizontal line for each feture
-        for i in range(nb_max_feature):
-            plt.axhline(y=i, color='black', linestyle='--', linewidth=0.5)
+        for model_id in range(len(self.model)):
+            explanation = self.shap_values[model_id]
+            _, ax = plt.subplots(1, 2, tight_layout=True, figsize=(8, 5))
+            for i in range(nb_max_feature):
+                ax[0].axhline(y=i, color='grey', linestyle='--', linewidth=0.5)
 
-        plt.show()
+            for spine_name, spine in ax[0].spines.items():
+                spine.set_visible(spine_name == 'bottom')
+            mean_abs_shap = np.abs(explanation.values).mean(axis=0)
+            feature_names = explanation.feature_names
+            sorted_idx = np.argsort(mean_abs_shap)[::-1][:nb_max_feature]
+            # custom bar plot
+            ax[0].barh(range(nb_max_feature), mean_abs_shap[sorted_idx][::-1], align='center', color='#1E88E5')
+            ax[0].set_yticks(range(nb_max_feature))
+            ax[0].set_xlabel('mean($|$SHAP value$|$)')
+            names = [feature_names[i] for i in sorted_idx][::-1]
+            names = [name.replace("constant", "intercept") for name in names]
+            names = [name.replace("mbp", "MAP") for name in names]
+            names = [name.replace("sbp", "SAP") for name in names]
+            names = [name.replace("dbp", "DAP") for name in names]
+            names = [name.replace("hr", "HR") for name in names]
+            names = [name.replace("rf_ct", "RF_CT") for name in names]
+            ax[0].set_yticklabels(names)
+
+            shap.plots.beeswarm(explanation, max_display=nb_max_feature,
+                                ax=ax[1], plot_size=None, show=False, group_remaining_features=False)
+            # remove the y thick label
+            ax[1].set_yticklabels([])
+            plt.xlabel('SHAP value')
+            # Match y-axis limits and ticks
+            ax[1].set_ylim(ax[0].get_ylim())
+            ax[1].set_yticks(ax[0].get_yticks())
+            # add horizontal line for each feture
+            for i in range(nb_max_feature):
+                plt.axhline(y=i, color='grey', linestyle='--', linewidth=0.5)
+
+            plt.suptitle(self.plot_name[model_id])
+
+            plt.savefig(f"output/shap_{self.output_name}_{self.plot_name[model_id]}.pdf", bbox_inches='tight')
+            plt.show()
         return
+
+    def plot_shap_one_feature(self, feature_name: str, correlation_name: str = None):
+        # plot the SHAP value for one feature
+        # get extrem values of the feature shap value
+        for model_id in range(len(self.model)):
+            self.features_names = self.model[model_id].get_booster().feature_names
+            if feature_name not in self.features_names:
+                continue
+            min_shap = self.shap_values[model_id][:, feature_name].values.min()
+            max_shap = self.shap_values[model_id][:, feature_name].values.max()
+        for model_id in range(len(self.model)):
+            self.features_names = self.model[model_id].get_booster().feature_names
+            if feature_name not in self.features_names:
+                continue
+            explanation = self.shap_values[model_id]
+            if correlation_name is not None:
+                shap.plots.scatter(explanation[:, feature_name], color=explanation[:, correlation_name], show=False)
+            else:
+                shap.plots.scatter(explanation[:, feature_name], show=False)
+            plt.ylim(min_shap, max_shap)
+            plt.title(f"{self.plot_name[model_id]} - {feature_name}")
+            plt.savefig(
+                f"output/shap_{self.output_name}_{self.plot_name[model_id]}_{feature_name}.pdf", bbox_inches='tight')
+            plt.show()
 
     def group_shap_values(self):
         # groups = {
@@ -622,4 +687,5 @@ class TestModel():
         for i in range(nb_max_feature):
             plt.axhline(y=i, color='black', linestyle='--', linewidth=0.5)
         plt.tight_layout()
+        plt.savefig(f"output/shap_group_{self.output_name}_{self.model_id_shap}.pdf", bbox_inches='tight')
         plt.show()
