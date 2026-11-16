@@ -228,7 +228,7 @@ class TestModel():
         with self.baseline_result_file.open("rb") as f:
             self.dict_results_baseline = pickle.load(f)
         self.baseline_recall = np.median(self.dict_results_baseline["recall_threshold"])
-        model_baseline = CalibratedClassifierCV()
+        model_baseline = CalibratedClassifierCV(method='isotonic')
         x_train = self.train_data[BASELINE_FEATURE].to_numpy().reshape(-1, 1)
         model_baseline.fit(x_train, self.y_train)
         x_test = self.test_data[BASELINE_FEATURE].to_numpy()

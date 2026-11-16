@@ -349,7 +349,7 @@ class DataBuilder:
 
         return label, label_id
 
-    def detect_intervention(self, segment: pd.DataFrame) -> bool:
+    def detect_intervention(self, segment: pd.DataFrame) -> str:
         # Remove part of the segment after label==1 to only consider intervention before possible IOH
         if segment.label.sum() > 0:
             time_label = segment.label.idxmax()
@@ -375,7 +375,7 @@ class DataBuilder:
             elif not hypo and drug not in VASSOPRESSOR_DRUGS:
                 if segment[drug].iloc[0] - segment[drug].min() > 0:
                     return 'inter_increase'
-        return False
+        return '0'
 
     def detect_intervention_map(self, segment: pd.DataFrame) -> bool:
         # Remove part of the segment after label==1 to only consider intervention before possible IOH
